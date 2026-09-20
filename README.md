@@ -167,6 +167,26 @@ too, e.g.:
 o.bind("SUPER + SHIFT + V", "Beam Link", "omarchy-beam --link")
 ```
 
+### Secret mode (one-time) — for keys and passwords
+
+```bash
+omarchy-beam --secret
+```
+
+Same local mechanism, hardened for sensitive data:
+
+- **Current clipboard only** — never reads history, so old secrets can't leak.
+- **One-time:** the server serves the page **once** and immediately closes, so
+  the link can't be reopened or replayed. The phone keeps the loaded page.
+- **Short TTL** (`BEAM_SECRET_TTL`, default 45s) if it's never scanned.
+- The overlay shows **"One-time secret — scan once"** and the phone page shows a
+  closed-link banner.
+
+The secret is **not** in the QR itself (the QR only holds the local URL), so a
+bystander photographing your screen doesn't get it. It does travel over your LAN
+in the clear (plain `http`) — fine on a home network, not on a hostile one. For
+true end-to-end-encrypted transfer across networks, see the roadmap.
+
 **How it stays local:** the page is served by a tiny web server running on your
 computer, bound to your LAN address behind an unguessable token in the URL. It
 **self-expires** after a few minutes (`BEAM_LINK_TTL`, default 180s) and stops
