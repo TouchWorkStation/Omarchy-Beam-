@@ -1,0 +1,357 @@
+#!/usr/bin/env bash
+#
+# omarchy-beam — Beam your clipboard to any device.
+#
+# Copy anything -> press a shortcut -> scan a QR code with your phone.
+#
+# Everything runs locally. Clipboard contents never leave the machine except
+# visually, through the QR code you scan. No accounts, no pairing, no cloud,
+# no network requests, no clipboard history, no logging of contents.
+#
+# Usage:
+#   omarchy-beam              Toggle the Beam overlay for the current clipboard
+#   echo "text" | omarchy-beam -   Beam piped text as a QR in the terminal
+#   omarchy-beam --help
+#   omarchy-beam --version
+#
+# Internal:
+#   omarchy-beam --emit       Emit "meta" + QR module matrix for the QML overlay
+#                             (reads the clipboard directly; called by Beam.qml)
+
+set -uo pipefail
+
+readonly BEAM_VERSION="0.1.0"
+readonly PLUGIN_ID="beam"
+
+# Maximum clipboard size we will turn into a QR code. Small pieces of info is
+# the whole point; a wall of text produces a dense QR that phones struggle to
+# scan. Override with BEAM_MAX_BYTES if you really need to.
+MAX_BYTES="${BEAM_MAX_BYTES:-1200}"
+
+# qrencode settings. Level M (~15% recovery) survives screen glare and camera
+# noise far better than the default L, and the payload cap keeps the code from
+# getting too dense. Margin 4 is the spec-required quiet zone.
+readonly QR_LEVEL="M"
+readonly QR_MARGIN="4"
+
+# Prefer a UTF-8 locale so string length and truncation are multibyte-aware
+# (an ellipsis or an accented character must count as one character, not
+# several bytes). Falls back silently if the current locale is already UTF-8
+# or none is available.
+if [[ ! "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" =~ [Uu][Tt][Ff] ]]; then
+  for _loc in C.UTF-8 C.utf8 en_US.UTF-8; do
+    if locale -a 2>/dev/null | grep -qix "$_loc"; then export LC_ALL="$_loc"; break; fi
+  done
+  unset _loc
+fi
+
+# ---------------------------------------------------------------------------
+# Small helpers
+# ---------------------------------------------------------------------------
+
+die() {
+  printf 'omarchy-beam: %s\n' "$*" >&2
+  exit 1
+}
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# Notify the user without ever putting clipboard contents in the message.
+notify() {
+  local title="$1" body="$2"
+  if have notify-send; then
+    notify-send -a "Omarchy Beam" "$title" "$body" >/dev/null 2>&1 && return 0
+  fi
+  # Fallback so a bare terminal invocation still says something useful.
+  printf '%s: %s\n' "$title" "$body" >&2
+}
+
+require_qrencode() {
+  have qrencode || die "qrencode is not installed. Install it with: sudo pacman -S qrencode"
+}
+
+require_clipboard() {
+  have wl-paste || die "wl-paste is not installed. Install it with: sudo pacman -S wl-clipboard"
+}
+
+# ---------------------------------------------------------------------------
+# Clipboard reading (Wayland)
+# ---------------------------------------------------------------------------
+
+# Print 1 if the clipboard currently offers any text/* type, else 0. Images and
+# other binary selections are deliberately treated as "nothing to beam".
+clipboard_has_text() {
+  local types
+  types="$(wl-paste --list-types 2>/dev/null)" || { printf 0; return; }
+  if grep -qiE '^text/' <<<"$types"; then printf 1; else printf 0; fi
+}
+
+# Read the clipboard as text, without wl-paste's appended trailing newline.
+read_clipboard() {
+  wl-paste --no-newline 2>/dev/null
+}
+
+# ---------------------------------------------------------------------------
+# Content classification (deterministic, no AI, no network)
+# ---------------------------------------------------------------------------
+#
+# Sets three globals from the raw content passed in:
+#   BEAM_KIND    url | text | email | tel | wifi
+#   BEAM_LABEL   the scan-action line ("Scan to open", ...)
+#   BEAM_PAYLOAD the exact string that gets encoded into the QR
+
+classify() {
+  local content="$1"
+
+  # Trim leading/trailing whitespace for prefix/pattern matching.
+  local trimmed="$content"
+  trimmed="${trimmed#"${trimmed%%[![:space:]]*}"}"
+  trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+
+  local single_line=1
+  [[ "$trimmed" == *$'\n'* ]] && single_line=0
+
+  # Regexes are held in variables so the [[ =~ ]] parser treats bracket
+  # expressions (which contain spaces and hyphens) as data, not syntax.
+  local re_wifi='^WIFI:[A-Za-z]?:?.*;'
+  local re_url='^https?://[^[:space:]]+$'
+  local re_mailto='^mailto:[^[:space:]]+$'
+  local re_email='^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$'
+  local re_tel='^tel:[+0-9][-0-9(). ]*$'
+
+  # Wi-Fi QR payload, e.g. WIFI:T:WPA;S:MyNet;P:secret;;
+  if [[ "$trimmed" =~ $re_wifi ]]; then
+    BEAM_KIND="wifi"; BEAM_LABEL="Scan to join"; BEAM_PAYLOAD="$trimmed"; return
+  fi
+
+  # URL (http / https)
+  if (( single_line )) && [[ "$trimmed" =~ $re_url ]]; then
+    BEAM_KIND="url"; BEAM_LABEL="Scan to open"; BEAM_PAYLOAD="$trimmed"; return
+  fi
+
+  # Email — explicit mailto:, or a bare address (rewritten to mailto: so the
+  # phone offers to compose rather than just copy).
+  if (( single_line )) && [[ "$trimmed" =~ $re_mailto ]]; then
+    BEAM_KIND="email"; BEAM_LABEL="Scan to email"; BEAM_PAYLOAD="$trimmed"; return
+  fi
+  if (( single_line )) && [[ "$trimmed" =~ $re_email ]]; then
+    BEAM_KIND="email"; BEAM_LABEL="Scan to email"; BEAM_PAYLOAD="mailto:${trimmed}"; return
+  fi
+
+  # Telephone
+  if (( single_line )) && [[ "$trimmed" =~ $re_tel ]]; then
+    BEAM_KIND="tel"; BEAM_LABEL="Scan to call"; BEAM_PAYLOAD="$trimmed"; return
+  fi
+
+  # Everything else is plain text. Encode it verbatim (raw content, untrimmed)
+  # so what the phone copies is exactly what was on the clipboard.
+  BEAM_KIND="text"; BEAM_LABEL="Scan to copy"; BEAM_PAYLOAD="$content"
+}
+
+# Build a short, single-line, human preview for under the QR code. Never trusts
+# the content to be safe to print raw: control characters are stripped and the
+# result is truncated so it can never blow out the overlay layout.
+preview_of() {
+  local content="$1" kind="$2"
+  local text
+
+  case "$kind" in
+    url)   text="${content#*://}" ; text="${text%/}" ;;      # drop scheme + trailing /
+    email) text="${content#mailto:}" ;;
+    tel)   text="${content#tel:}" ;;
+    wifi)
+      # Pull the SSID out of the WIFI: payload for a friendly label.
+      if [[ "$content" =~ [Ss]:([^\;]*)\; ]]; then
+        text="Wi-Fi: ${BASH_REMATCH[1]}"
+      else
+        text="Wi-Fi network"
+      fi
+      ;;
+    *)     text="${content%%$'\n'*}" ;;                       # first line only
+  esac
+
+  # Replace tabs/newlines/other control chars with spaces, squeeze runs.
+  text="$(printf '%s' "$text" | tr '\t\r\n' '   ' | tr -s ' ')"
+  text="${text#"${text%%[![:space:]]*}"}"
+  text="${text%"${text##*[![:space:]]}"}"
+
+  # Character-based truncation (UTF-8 aware under a UTF-8 locale).
+  local max=42
+  if (( ${#text} > max )); then
+    text="${text:0:max-1}…"
+  fi
+  printf '%s' "$text"
+}
+
+# ---------------------------------------------------------------------------
+# QR generation
+# ---------------------------------------------------------------------------
+
+# Emit a square 0/1 module matrix (one row per line) for the given payload on
+# stdin. Mirrors how Omarchy's own omarchy-network-qr feeds the shell: qrencode
+# ASCII uses two chars per module, so each pair collapses to a single 0/1.
+# Payload is passed on stdin only — never interpolated into a command line.
+qr_matrix() {
+  local ascii
+  ascii="$(qrencode --type ASCII --margin "$QR_MARGIN" --level "$QR_LEVEL" --output - 2>/dev/null)" || return 1
+  [[ -n "$ascii" ]] || return 1
+  local line row col
+  while IFS= read -r line; do
+    row=""
+    for (( col = 0; col < ${#line}; col += 2 )); do
+      if [[ "${line:col:2}" == *"#"* ]]; then row+="1"; else row+="0"; fi
+    done
+    printf '%s\n' "$row"
+  done <<<"$ascii"
+}
+
+# ---------------------------------------------------------------------------
+# Sub-commands
+# ---------------------------------------------------------------------------
+
+cmd_help() {
+  cat <<'EOF'
+Omarchy Beam — Beam your clipboard to any device.
+
+  Copy → Super + Shift + Q → Scan
+
+USAGE
+  omarchy-beam                 Toggle the Beam overlay for the current clipboard
+  echo "text" | omarchy-beam - Beam piped text as a QR in the terminal
+  omarchy-beam --help          Show this help
+  omarchy-beam --version       Show the version
+
+The overlay classifies the clipboard automatically and shows the matching
+action: Scan to open (URL), Scan to copy (text), Scan to email (mailto:),
+Scan to call (tel:), or Scan to join (Wi-Fi QR). Press Esc or click outside
+the card to close it.
+
+PRIVACY
+  Everything is local. Your clipboard never leaves this machine except
+  visually, through the QR code. No accounts, no cloud, no network, no history.
+EOF
+}
+
+cmd_version() { printf 'omarchy-beam %s\n' "$BEAM_VERSION"; }
+
+# --emit: read the clipboard, classify, size-check, and print the protocol the
+# QML overlay parses:  meta<TAB>status<TAB>kind<TAB>label<TAB>preview  then, for
+# status "ok", the QR module matrix. status is one of ok|empty|toolarge.
+cmd_emit() {
+  require_qrencode
+  require_clipboard
+
+  local status kind label preview
+  if [[ "$(clipboard_has_text)" != "1" ]]; then
+    printf 'meta\t%s\t%s\t%s\t%s\n' "empty" "" "Nothing to Beam" ""
+    return 0
+  fi
+
+  local content
+  content="$(read_clipboard)"
+
+  # All-whitespace or empty is nothing to beam.
+  if [[ -z "${content//[[:space:]]/}" ]]; then
+    printf 'meta\t%s\t%s\t%s\t%s\n' "empty" "" "Nothing to Beam" ""
+    return 0
+  fi
+
+  local bytes
+  bytes="$(printf '%s' "$content" | wc -c)"
+  if (( bytes > MAX_BYTES )); then
+    printf 'meta\t%s\t%s\t%s\t%s\n' "toolarge" "" "Too large to Beam" \
+      "$(human_size "$bytes") — limit $(human_size "$MAX_BYTES")"
+    return 0
+  fi
+
+  classify "$content"
+  preview="$(preview_of "$BEAM_PAYLOAD" "$BEAM_KIND")"
+  # Preview is the last field and must contain no tab/newline (sanitized above).
+
+  local matrix
+  matrix="$(printf '%s' "$BEAM_PAYLOAD" | qr_matrix)"
+  if [[ -z "$matrix" ]]; then
+    printf 'meta\t%s\t%s\t%s\t%s\n' "toolarge" "" "Too large to Beam" ""
+    return 0
+  fi
+
+  printf 'meta\t%s\t%s\t%s\t%s\n' "ok" "$BEAM_KIND" "$BEAM_LABEL" "$preview"
+  printf '%s\n' "$matrix"
+}
+
+human_size() {
+  local b="$1"
+  if (( b >= 1024 )); then
+    awk -v b="$b" 'BEGIN { printf "%.1f KB", b/1024 }'
+  else
+    printf '%d B' "$b"
+  fi
+}
+
+# Pipe mode: echo "text" | omarchy-beam -
+# Renders the QR straight to the terminal without touching the clipboard or
+# opening the overlay. Handy over SSH or in scripts.
+cmd_pipe() {
+  require_qrencode
+  local content
+  content="$(cat)"
+  if [[ -z "${content//[[:space:]]/}" ]]; then
+    die "nothing on stdin to beam"
+  fi
+  local bytes
+  bytes="$(printf '%s' "$content" | wc -c)"
+  if (( bytes > MAX_BYTES )); then
+    die "too large to beam ($(human_size "$bytes"), limit $(human_size "$MAX_BYTES"))"
+  fi
+  classify "$content"
+  printf '%s' "$BEAM_PAYLOAD" | qrencode --type ANSIUTF8 --margin 2 --level "$QR_LEVEL" \
+    || die "failed to generate QR code"
+  printf '\n%s — %s\n' "$BEAM_LABEL" "$(preview_of "$BEAM_PAYLOAD" "$BEAM_KIND")"
+}
+
+# Default: toggle the overlay in the running Omarchy shell.
+cmd_toggle() {
+  require_clipboard
+  have omarchy-shell || die "omarchy-shell not found — Omarchy Beam needs the Omarchy shell to display the overlay."
+
+  # If there is nothing to beam, don't flash a full-screen overlay: notify and
+  # close any stale overlay that might still be up.
+  if [[ "$(clipboard_has_text)" != "1" ]]; then
+    notify "Omarchy Beam" "Nothing to Beam"
+    omarchy-shell -q shell hide "$PLUGIN_ID" >/dev/null 2>&1
+    return 0
+  fi
+  local content
+  content="$(read_clipboard)"
+  if [[ -z "${content//[[:space:]]/}" ]]; then
+    notify "Omarchy Beam" "Nothing to Beam"
+    omarchy-shell -q shell hide "$PLUGIN_ID" >/dev/null 2>&1
+    return 0
+  fi
+
+  # The overlay reads the clipboard itself (via --emit) when it opens, so no
+  # clipboard data is ever passed through the IPC payload / command line.
+  omarchy-shell shell toggle "$PLUGIN_ID" '{}' \
+    || die "could not reach the Omarchy shell (is it running?)."
+}
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+main() {
+  case "${1:-}" in
+    -h|--help)     cmd_help ;;
+    -V|--version)  cmd_version ;;
+    --emit)        cmd_emit ;;
+    -)             cmd_pipe ;;
+    "")            cmd_toggle ;;
+    *)             die "unknown option: $1 (try --help)" ;;
+  esac
+}
+
+# Only run when executed directly. When sourced (e.g. by the test suite) the
+# functions above are exposed without invoking anything.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi
