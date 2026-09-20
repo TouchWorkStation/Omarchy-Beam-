@@ -129,6 +129,39 @@ Beam classifies the clipboard automatically and shows the matching action:
 
 Detection is simple and deterministic — no AI, no guessing, no network.
 
+### Copying plain text on your phone
+
+A plain-text QR has no built-in action, so a phone's **stock Camera** treats it
+as a web search instead of offering to copy it. That's a phone-OS behavior, not
+a Beam limitation. Your options:
+
+- **Use a scanner that copies text.** Google Lens, or a free open-source QR app
+  like [Binary Eye](https://f-droid.org/packages/de.markusfisch.android.binaryeye/)
+  (enable *Copy to clipboard* for true auto-copy). The saved-photo long-press
+  also surfaces a Copy button.
+- **Read it off the overlay.** Beam shows the full text under the QR.
+- **Make the stock Camera prefill it (opt-in).** Set a text mode so plain text is
+  encoded as a draft the camera *does* act on — nothing is sent, still 100%
+  local:
+
+  | Mode     | Scanning plain text opens…                    |
+  | -------- | --------------------------------------------- |
+  | `plain`  | raw text QR (default)                         |
+  | `sms`    | Messages, with the text prefilled in the body |
+  | `mailto` | Mail, with the text prefilled in the body     |
+
+  Enable it with a config file (read by the overlay too):
+
+  ```bash
+  mkdir -p ~/.config/omarchy-beam
+  echo mailto > ~/.config/omarchy-beam/text-mode   # or: sms
+  ```
+
+  Or per-run with the `BEAM_TEXT_MODE` environment variable (it overrides the
+  file). Only plain text is affected — URLs, email, tel, and Wi-Fi are untouched.
+  A QR can never write to a phone's clipboard on its own; this just gets the
+  text somewhere copyable without a scanner app.
+
 ## Privacy
 
 Privacy is the point.

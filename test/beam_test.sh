@@ -63,6 +63,31 @@ assert_payload "mailto:a@b.com"       "mailto:a@b.com"
 assert_payload "https://x.test/a"     "https://x.test/a"
 assert_payload $'has\ntrailing\n'     $'has\ntrailing\n'   # text kept verbatim
 
+echo "Text mode (opt-in BEAM_TEXT_MODE)"
+BEAM_TEXT_MODE=plain classify "hello world"
+[[ "$BEAM_PAYLOAD" == "hello world" && "$BEAM_DISPLAY" == "hello world" ]] \
+  && ok "plain mode keeps raw text" || bad "plain mode (got [$BEAM_PAYLOAD])"
+BEAM_TEXT_MODE=sms classify "hello world"
+[[ "$BEAM_KIND" == "text" && "$BEAM_PAYLOAD" == "sms:?body=hello%20world" && "$BEAM_DISPLAY" == "hello world" ]] \
+  && ok "sms mode wraps text, display kept" || bad "sms mode (got [$BEAM_PAYLOAD] / [$BEAM_DISPLAY])"
+BEAM_TEXT_MODE=mailto classify $'multi\nline'
+[[ "$BEAM_PAYLOAD" == "mailto:?body=multi%0Aline" ]] \
+  && ok "mailto mode url-encodes newlines" || bad "mailto mode (got [$BEAM_PAYLOAD])"
+BEAM_TEXT_MODE=sms classify "https://x.test/a"
+[[ "$BEAM_KIND" == "url" && "$BEAM_PAYLOAD" == "https://x.test/a" ]] \
+  && ok "text mode does not touch URLs" || bad "url under text mode (got [$BEAM_PAYLOAD])"
+BEAM_TEXT_MODE=bogus classify "plain again"
+[[ "$BEAM_PAYLOAD" == "plain again" ]] \
+  && ok "unknown mode falls back to plain" || bad "bad-mode fallback (got [$BEAM_PAYLOAD])"
+# The sms URI must decode back to the original text.
+if command -v python3 >/dev/null 2>&1; then
+  BEAM_TEXT_MODE=sms classify $'copy me\nplease'
+  body="${BEAM_PAYLOAD#sms:?body=}"
+  dec="$(python3 -c 'import sys,urllib.parse; sys.stdout.write(urllib.parse.unquote(sys.argv[1]))' "$body")"
+  [[ "$dec" == $'copy me\nplease' ]] && ok "sms body decodes to the original text" || bad "sms decode (got [$dec])"
+fi
+unset BEAM_TEXT_MODE
+
 echo "Preview sanitization + truncation"
 p="$(preview_of "https://github.com/omacom/omarchy" url)"
 [[ "$p" == "github.com/omacom/omarchy" ]] && ok "preview strips scheme" || bad "preview strips scheme (got [$p])"

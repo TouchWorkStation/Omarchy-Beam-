@@ -20,7 +20,7 @@
 
 set -uo pipefail
 
-readonly BEAM_VERSION="0.1.1"
+readonly BEAM_VERSION="0.2.0"
 readonly PLUGIN_ID="beam"
 
 # Maximum clipboard size we will turn into a QR code. Small pieces of info is
@@ -55,6 +55,42 @@ die() {
 }
 
 have() { command -v "$1" >/dev/null 2>&1; }
+
+# Percent-encode a string for use in a URI query (RFC 3986 unreserved set kept
+# literal, everything else — including UTF-8 bytes and newlines — encoded).
+# LC_ALL=C makes this iterate byte-by-byte, which is exactly what URI encoding
+# of multibyte UTF-8 requires.
+urlencode() {
+  local LC_ALL=C str="$1" out="" i ch ord
+  for (( i = 0; i < ${#str}; i++ )); do
+    ch=${str:i:1}
+    case $ch in
+      [-_.~a-zA-Z0-9]) out+=$ch ;;
+      *) printf -v ord '%d' "'$ch"; out+=$(printf '%%%02X' $(( ord & 255 ))) ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+
+# How plain text should be encoded so it's easy to grab on a phone:
+#   plain  — a raw text QR (default; copy via Lens / a QR app / saved-photo)
+#   sms    — sms:?body=…    the phone opens Messages with the text prefilled
+#   mailto — mailto:?body=… the phone opens Mail with the text prefilled
+# Set BEAM_TEXT_MODE, or write the value to
+# ~/.config/omarchy-beam/text-mode (the env var wins). The config file is read
+# so the overlay (which runs `omarchy-beam --emit` from the shell's own
+# environment) honors the setting without needing it exported session-wide.
+resolve_text_mode() {
+  local m="${BEAM_TEXT_MODE:-}"
+  if [[ -z "$m" ]]; then
+    local f="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-beam/text-mode"
+    [[ -r "$f" ]] && m="$(tr -d '[:space:]' <"$f" 2>/dev/null)"
+  fi
+  case "$m" in
+    sms|mailto|plain) printf '%s' "$m" ;;
+    *)                printf 'plain' ;;
+  esac
+}
 
 # Notify the user without ever putting clipboard contents in the message.
 notify() {
@@ -103,6 +139,11 @@ read_clipboard() {
 classify() {
   local content="$1"
 
+  # BEAM_DISPLAY is the human-readable string for the preview; it equals the
+  # payload for every kind except plain text in sms/mailto mode, where the
+  # payload becomes a URI but the preview must still show the original text.
+  BEAM_DISPLAY=""
+
   # Trim leading/trailing whitespace for prefix/pattern matching.
   local trimmed="$content"
   trimmed="${trimmed#"${trimmed%%[![:space:]]*}"}"
@@ -143,9 +184,16 @@ classify() {
     BEAM_KIND="tel"; BEAM_LABEL="Scan to call"; BEAM_PAYLOAD="$trimmed"; return
   fi
 
-  # Everything else is plain text. Encode it verbatim (raw content, untrimmed)
-  # so what the phone copies is exactly what was on the clipboard.
-  BEAM_KIND="text"; BEAM_LABEL="Scan to copy"; BEAM_PAYLOAD="$content"
+  # Everything else is plain text. By default encode it verbatim (raw content)
+  # so what the phone reads is exactly what was on the clipboard. In sms/mailto
+  # mode, wrap it in a URI so a stock phone camera opens a prefilled draft the
+  # user can copy from (nothing is sent, and no data leaves the machine).
+  BEAM_KIND="text"; BEAM_LABEL="Scan to copy"; BEAM_DISPLAY="$content"
+  case "$(resolve_text_mode)" in
+    sms)    BEAM_PAYLOAD="sms:?body=$(urlencode "$content")" ;;
+    mailto) BEAM_PAYLOAD="mailto:?body=$(urlencode "$content")" ;;
+    *)      BEAM_PAYLOAD="$content" ;;
+  esac
 }
 
 # Build a short, single-line, human preview for under the QR code. Never trusts
@@ -270,7 +318,7 @@ cmd_emit() {
   fi
 
   classify "$content"
-  preview="$(preview_of "$BEAM_PAYLOAD" "$BEAM_KIND")"
+  preview="$(preview_of "${BEAM_DISPLAY:-$BEAM_PAYLOAD}" "$BEAM_KIND")"
   # Preview is the last field and must contain no tab/newline (sanitized above).
 
   local matrix
@@ -311,7 +359,7 @@ cmd_pipe() {
   classify "$content"
   printf '%s' "$BEAM_PAYLOAD" | qrencode --type ANSIUTF8 --margin 2 --level "$QR_LEVEL" \
     || die "failed to generate QR code"
-  printf '\n%s — %s\n' "$BEAM_LABEL" "$(preview_of "$BEAM_PAYLOAD" "$BEAM_KIND")"
+  printf '\n%s — %s\n' "$BEAM_LABEL" "$(preview_of "${BEAM_DISPLAY:-$BEAM_PAYLOAD}" "$BEAM_KIND")"
 }
 
 # Default: toggle the overlay in the running Omarchy shell.
