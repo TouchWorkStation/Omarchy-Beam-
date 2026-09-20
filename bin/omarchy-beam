@@ -20,7 +20,7 @@
 
 set -uo pipefail
 
-readonly BEAM_VERSION="0.1.0"
+readonly BEAM_VERSION="0.1.1"
 readonly PLUGIN_ID="beam"
 
 # Maximum clipboard size we will turn into a QR code. Small pieces of info is
@@ -167,16 +167,21 @@ preview_of() {
         text="Wi-Fi network"
       fi
       ;;
-    *)     text="${content%%$'\n'*}" ;;                       # first line only
+    *)     text="$content" ;;                                 # full text (wrapped by the overlay)
   esac
 
-  # Replace tabs/newlines/other control chars with spaces, squeeze runs.
+  # Replace tabs/newlines/other control chars with spaces, squeeze runs. Keeping
+  # it single-line is required by the CLI↔QML protocol (the preview is one
+  # tab-delimited field); the overlay wraps it across several lines for display.
   text="$(printf '%s' "$text" | tr '\t\r\n' '   ' | tr -s ' ')"
   text="${text#"${text%%[![:space:]]*}"}"
   text="${text%"${text##*[![:space:]]}"}"
 
-  # Character-based truncation (UTF-8 aware under a UTF-8 locale).
+  # Character-based truncation (UTF-8 aware under a UTF-8 locale). Plain text
+  # gets a longer allowance so it is genuinely readable/copyable off the
+  # overlay; the other kinds are short identifiers that stay on one line.
   local max=42
+  [[ "$kind" == "text" ]] && max=180
   if (( ${#text} > max )); then
     text="${text:0:max-1}…"
   fi

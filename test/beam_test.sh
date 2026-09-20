@@ -66,11 +66,16 @@ assert_payload $'has\ntrailing\n'     $'has\ntrailing\n'   # text kept verbatim
 echo "Preview sanitization + truncation"
 p="$(preview_of "https://github.com/omacom/omarchy" url)"
 [[ "$p" == "github.com/omacom/omarchy" ]] && ok "preview strips scheme" || bad "preview strips scheme (got [$p])"
-long="$(printf 'x%.0s' {1..200})"
+# URLs and other short kinds stay on one line (<=42 chars).
+p="$(preview_of "https://example.com/$(printf 'a%.0s' {1..100})" url)"
+(( ${#p} <= 42 )) && ok "url preview truncated to <=42 chars (${#p})" || bad "url preview truncation (${#p})"
+# Plain text gets a longer, wrapped allowance so it is readable off the overlay.
+long="$(printf 'x%.0s' {1..400})"
 p="$(preview_of "$long" text)"
-(( ${#p} <= 42 )) && ok "preview truncated to <=42 chars (${#p})" || bad "preview truncation (${#p})"
+(( ${#p} <= 180 && ${#p} > 42 )) && ok "text preview truncated to <=180 chars (${#p})" || bad "text preview truncation (${#p})"
+# Multiline text is flattened to a single line (the overlay wraps it visually).
 p="$(preview_of $'first line\nsecond line' text)"
-[[ "$p" == "first line" ]] && ok "preview keeps first line only" || bad "preview first-line (got [$p])"
+[[ "$p" == "first line second line" ]] && ok "text preview flattens newlines" || bad "text preview flatten (got [$p])"
 p="$(preview_of "WIFI:T:WPA;S:HomeNet;P:pw;;" wifi)"
 [[ "$p" == "Wi-Fi: HomeNet" ]] && ok "preview extracts SSID" || bad "preview SSID (got [$p])"
 
