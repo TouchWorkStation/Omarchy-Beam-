@@ -244,22 +244,39 @@ Item {
               Layout.alignment: Qt.AlignHCenter
             }
 
-            // The QR code. Every module is an integer-sized native rectangle on
-            // a white canvas — crisp, no image files, no file-cache races. Only
-            // the dark modules paint, so the white canvas keeps rounded corners;
-            // the spec quiet zone is baked into the matrix by qrencode.
-            // The QR sits inside an Omarchy-green frame. The frame is OUTSIDE the
-            // code's quiet zone (a white margin baked into the matrix), so it
-            // never touches the scannable area — pure branding, always renders.
-            Rectangle {
+            // The QR code, wrapped in the Omarchy Beam glyph. The glyph image
+            // frames the code; the white QR canvas sits on top in the glyph's
+            // interior, so the code keeps its own white quiet zone and stays
+            // scannable regardless of the artwork. If the image can't load, a
+            // pure-QML green border stands in so branding never simply vanishes.
+            Item {
               id: qrFrame
-              readonly property int pad: Style.space(14)
+              // The QR fills ~54% of the glyph; the rest is the surrounding art.
+              readonly property real fillRatio: 0.54
               visible: root.showingQr
-              color: root.brandGreen
-              radius: Style.cornerRadius > 0 ? Style.cornerRadius + Style.space(10) : Style.space(12)
-              implicitWidth: qrCanvas.width + pad * 2
-              implicitHeight: qrCanvas.height + pad * 2
+              implicitWidth: Math.round(qrCanvas.width / fillRatio)
+              implicitHeight: implicitWidth
               Layout.alignment: Qt.AlignHCenter
+
+              Image {
+                id: frameImg
+                anchors.fill: parent
+                source: Qt.resolvedUrl("assets/frame.png")
+                fillMode: Image.PreserveAspectFit
+                smooth: true
+                mipmap: true
+                visible: status === Image.Ready
+              }
+
+              // Fallback frame if the glyph image is unavailable.
+              Rectangle {
+                anchors.fill: parent
+                visible: frameImg.status !== Image.Ready
+                color: "transparent"
+                radius: Style.space(10)
+                border.color: root.brandGreen
+                border.width: Math.max(3, Math.round(parent.width * 0.06))
+              }
 
               Rectangle {
                 id: qrCanvas
