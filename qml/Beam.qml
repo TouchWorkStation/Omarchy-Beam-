@@ -270,6 +270,27 @@ Item {
                   }
                 }
               }
+
+              // Branded centre mark. Level-H error correction (see the CLI) lets
+              // the QR survive the covered modules; the white pad keeps the logo
+              // clear of the surrounding code so it still scans cleanly.
+              Rectangle {
+                visible: root.showingQr
+                anchors.centerIn: parent
+                width: Math.round(qrCanvas.width * 0.22)
+                height: width
+                radius: Math.max(2, Math.round(width * 0.16))
+                color: "white"
+                Image {
+                  anchors.centerIn: parent
+                  width: Math.round(parent.width * 0.80)
+                  height: width
+                  source: Qt.resolvedUrl("assets/logo.png")
+                  fillMode: Image.PreserveAspectFit
+                  smooth: true
+                  mipmap: true
+                }
+              }
             }
 
             // Loading spinner text

@@ -1,13 +1,14 @@
 # Omarchy Beam
 
-**Beam your clipboard to any device.**
+**Take any link and make it a scannable QR code — instantly.**
 
-Copy something on your Omarchy computer, press a shortcut, and a QR code appears
-in a clean, native overlay. Scan it with your phone — the link opens, the text
-copies, the number dials. That's the whole thing.
+Copy a link (or pass it on the command line), press a shortcut, and a branded QR
+appears in a clean, native Omarchy overlay. Scan it with any phone — the link
+opens, the text copies, the number dials. That's the core of Beam.
 
 ```
-Copy  →  Super + Shift + Q  →  Scan
+Copy a link  →  Super + Shift + Q  →  Scan
+        or:  omarchy-beam https://example.com
 ```
 
 No pairing. No account. No cloud.
@@ -16,30 +17,44 @@ No pairing. No account. No cloud.
 
 ## Demo
 
-A centered card on a dark scrim, styled with your current Omarchy theme —
-running here with the repo URL on the clipboard:
+A centered card on a dark scrim, styled with your current Omarchy theme, with the
+Beam mark in the middle of the code:
 
 <p align="center">
   <img src="screenshots/overlay.jpg" alt="Omarchy Beam overlay: a QR code labelled BEAM with the clipboard URL and SCAN TO OPEN" width="320">
 </p>
 
-Prefer the terminal? Pipe text straight to a scannable code without touching your
-clipboard:
+Three ways to beam a link:
 
 ```bash
-echo "https://github.com/omacom/omarchy" | omarchy-beam -
+# 1. copy a link, then press Super + Shift + Q
+# 2. pass it directly (no clipboard change; also prints the QR in the terminal):
+omarchy-beam https://github.com/TouchWorkStation/Omarchy-Beam-
+# 3. pipe it (terminal QR):
+echo "https://example.com" | omarchy-beam -
 ```
+
+## Two modes, one plugin
+
+- **Links (core, default):** copy or pass a link → QR. 100% local, no server, no
+  dependencies beyond `qrencode` + `wl-clipboard`. This is all most people need.
+- **Beam Link (optional module):** an opt-in local web server that serves your
+  recent clipboard **history** as a page your phone can copy from, and a
+  one-time **secret** mode for keys/passwords. Needs `python3`, runs only when
+  you invoke `--link` / `--secret`, and can be turned off entirely (see
+  [links-only](#links-only-mode)). *Status: stable core; history UX still being
+  polished.*
 
 ## Why Beam?
 
-Moving a URL, a command, a Wi-Fi password, or a phone number from your desktop to
-your phone is annoyingly hard for something so small. The usual answers are
-messaging yourself, email drafts, or a syncing service — all of which mean
-accounts, apps, and your data leaving the machine.
+Moving a link, a command, a Wi-Fi password, or a phone number from your desktop
+to your phone is annoyingly hard for something so small. The usual answers —
+messaging yourself, email drafts, a syncing service — all mean accounts, apps,
+and your data leaving the machine.
 
-Beam does the obvious thing instead: it shows the data as a QR code on your own
-screen. Your phone's camera does the rest. Nothing is transmitted, stored, or
-uploaded — the information travels as photons, from your monitor to your camera.
+Beam does the obvious thing: it shows the data as a QR code on your own screen.
+Your phone's camera does the rest. In the core links mode nothing is transmitted,
+stored, or uploaded — the information travels as photons, monitor to camera.
 
 ## Installation
 
@@ -79,10 +94,22 @@ omarchy-shell shell setPluginEnabled beam true
    toggle it.
 
 ```bash
-omarchy-beam               # toggle the overlay for the current clipboard
+omarchy-beam                    # toggle the overlay for the current clipboard
+omarchy-beam https://you.dev    # beam a link directly (also prints a terminal QR)
+echo "text" | omarchy-beam -    # render a QR in the terminal, clipboard untouched
 omarchy-beam --help
 omarchy-beam --version
-echo "text" | omarchy-beam -   # render a QR in the terminal, clipboard untouched
+```
+
+### Links-only mode
+
+The clipboard-history web server is optional and off unless you run `--link` /
+`--secret`. To make the plugin **links-only** (and refuse those commands
+entirely — e.g. on a shared or locked-down machine):
+
+```bash
+mkdir -p ~/.config/omarchy-beam && touch ~/.config/omarchy-beam/links-only
+# or per-run: BEAM_DISABLE_LINK=1
 ```
 
 ## Keyboard shortcut
