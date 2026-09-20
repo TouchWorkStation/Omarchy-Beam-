@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "beam",
+  "name": "Omarchy Beam",
+  "version": "0.1.0",
+  "author": "TouchWorkStation",
+  "description": "Beam your clipboard to any device — copy, press a shortcut, scan a QR code.",
+  "kinds": [
+    "overlay"
+  ],
+  "entryPoints": {
+    "overlay": "qml/Beam.qml"
+  }
+}
