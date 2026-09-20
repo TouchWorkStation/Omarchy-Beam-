@@ -291,17 +291,22 @@ Item {
             }
 
             // Clipboard preview under the QR (sanitized + truncated by the CLI).
+            // Plain text wraps across a few lines so it is readable and easy to
+            // copy straight off the overlay; the other kinds are short single-
+            // line identifiers.
             Text {
+              readonly property bool isText: root.kind === "text"
               textFormat: Text.PlainText
               visible: (root.showingQr || root.showingMessage) && root.preview !== ""
               text: root.preview
               color: Color.foreground
               font.family: root.fontFamily
               font.pixelSize: Style.font.bodySmall
+              wrapMode: isText ? Text.Wrap : Text.NoWrap
               elide: Text.ElideRight
-              maximumLineCount: 1
+              maximumLineCount: isText ? 4 : 1
               horizontalAlignment: Text.AlignHCenter
-              Layout.maximumWidth: Style.space(300)
+              Layout.maximumWidth: qrCanvas.width > 0 ? qrCanvas.width : Style.space(300)
               Layout.alignment: Qt.AlignHCenter
             }
 

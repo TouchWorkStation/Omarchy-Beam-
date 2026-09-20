@@ -173,6 +173,14 @@ sudo pacman -S qrencode wl-clipboard
 - **QR won't scan** — increase your screen brightness, and make sure the whole
   card is on screen. The QR is rendered fixed-white with a quiet zone precisely
   so it scans under any theme.
+- **Scanning plain text does nothing on my phone** — a plain-text QR has no
+  built-in action (unlike a URL, which opens, or `tel:`, which dials), so what
+  happens depends on the scanner. Use **Google Lens** (Android) or the **stock
+  iOS Camera** — both show the text with a **Copy** button. A basic third-party
+  camera app may ignore non-URL codes. Beam also shows the full text under the
+  QR on the overlay, so you can read or copy it directly on the desktop. (A QR
+  cannot push text into a phone's clipboard on its own — that would require a
+  URL and a server, which Beam deliberately avoids.)
 - **Plugin not loading** — run `omarchy plugin validate .` in the plugin folder
   and `omarchy-shell shell rescanPlugins`.
 
