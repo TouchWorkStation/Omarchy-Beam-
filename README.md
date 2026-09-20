@@ -249,7 +249,9 @@ sudo pacman -S python                      # only if you use --link
   and `omarchy-shell shell rescanPlugins`.
 - **"could not start the Beam Link server"** — run `omarchy-beam --link-doctor`.
   It starts the server in the foreground and prints its URL or the exact error
-  (e.g. missing `python3`), plus your host's IP addresses.
+  (e.g. missing `python3`), plus your host's IP addresses. (Fixed in v0.3.5: on
+  hosts with a VPN such as Tailscale, the server used to stall on a reverse-DNS
+  lookup at bind time — update if you're on an older version.)
 - **Beam Link page won't open on my phone** — check, in order:
   1. **Same Wi-Fi?** Phone and desktop must be on the same network (and not a
      "guest" SSID — those often isolate devices from each other).
