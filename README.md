@@ -133,7 +133,7 @@ Beam classifies the clipboard automatically and shows the matching action:
 | Clipboard                         | Detected as | Action shown   |
 | --------------------------------- | ----------- | -------------- |
 | `https://github.com/omacom/omarchy` | URL       | **Scan to open** |
-| `sudo pacman -S docker`           | Plain text  | **Scan to copy** |
+| `docker compose up -d`            | Plain text  | **Scan to copy** |
 | `user@example.com` / `mailto:…`   | Email       | **Scan to email** |
 | `tel:+15555555555`                | Telephone   | **Scan to call** |
 | `WIFI:T:WPA;S:MyNet;P:secret;;`   | Wi-Fi QR    | **Scan to join** |
@@ -254,21 +254,44 @@ Privacy is the point.
   `qrencode` on stdin, never interpolated into a shell command, and is never
   executed or evaluated.
 
+## Security & scope
+
+A quick, honest map of exactly what Beam can and can't do (see also
+[`SECURITY.md`](SECURITY.md)):
+
+- **No config is ever overwritten.** Beam never edits your Hyprland config — it
+  only *prints* the keybinding line for you to add yourself.
+- **No privilege escalation.** Beam never escalates privilege (never runs as
+  root or through a privilege helper). It never
+  installs, upgrades, or removes packages; if a dependency is missing it only
+  *tells* you the package to install.
+- **Core links mode is offline.** Turning a link into a QR makes zero network
+  requests and writes no temp files.
+- **`install.sh`** only symlinks `omarchy-beam` into `~/.local/bin` and prints
+  the shortcut; **`uninstall.sh`** only removes that symlink (when it points at
+  this plugin) and Beam's runtime state. Neither touches your shell or Hyprland
+  config. Both are optional — the plugin works from its install directory.
+- **Beam Link** (`--link` / `--secret`, opt-in, *work in progress*) is the only
+  networked feature. When *you* invoke it, a local `python3` server binds your
+  **LAN** address behind an unguessable token, self-expires on a TTL (and after
+  a single fetch in `--secret`), never uploads to any cloud, and never logs
+  clipboard contents. It can be disabled entirely — see
+  [Links-only mode](#links-only-mode).
+
 ## Requirements
 
-Everything below already ships with Omarchy:
+Everything Beam needs already ships with Omarchy — there's nothing to install:
 
 - `omarchy-shell` (the Omarchy Quickshell desktop)
 - `wl-clipboard` (`wl-paste`)
 - `qrencode`
-- `python3` — only for **Beam Link** (`--link`); the QR modes don't need it.
+- `python3` — used **only** by the optional Beam Link module (`--link`); the QR
+  links core never needs it.
 
-If a dependency is somehow missing, Beam tells you and how to install it:
-
-```bash
-sudo pacman -S qrencode wl-clipboard      # core
-sudo pacman -S python                      # only if you use --link
-```
+Beam itself never installs anything. In the unlikely event a dependency is
+missing, Beam prints the exact package name (`qrencode`, `wl-clipboard`, or
+`python3`) for you to install with your usual package manager — it never runs a
+package manager or elevates privilege for you.
 
 ## Troubleshooting
 
@@ -315,8 +338,8 @@ sudo pacman -S python                      # only if you use --link
      profile / the keybind: `env BEAM_LINK_HOST=192.168.x.y omarchy-beam --link`).
   3. **Server up?** On the desktop, `curl -s -o /dev/null -w '%{http_code}\n' "<the URL under the QR>"` should print `200`.
   4. **Firewall?** If curl works locally but the phone times out, a firewall is
-     blocking the port. Allow it, e.g. `sudo ufw allow from 192.168.0.0/16` (or
-     your subnet). Omarchy has no firewall by default, so this is rare.
+     blocking the port — allow your LAN subnet through it (e.g. a `ufw` rule for
+     `192.168.0.0/16`). Omarchy has no firewall by default, so this is rare.
 
 ## Uninstall
 

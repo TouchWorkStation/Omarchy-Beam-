@@ -26,7 +26,7 @@
 
 set -uo pipefail
 
-readonly BEAM_VERSION="0.5.3"
+readonly BEAM_VERSION="0.5.4"
 readonly PLUGIN_ID="beam"
 
 # Maximum clipboard size we will turn into a QR code. Small pieces of info is
@@ -109,11 +109,11 @@ notify() {
 }
 
 require_qrencode() {
-  have qrencode || die "qrencode is not installed. Install it with: sudo pacman -S qrencode"
+  have qrencode || die "qrencode is not installed. install it with your package manager (e.g. pacman -S qrencode)"
 }
 
 require_clipboard() {
-  have wl-paste || die "wl-paste is not installed. Install it with: sudo pacman -S wl-clipboard"
+  have wl-paste || die "wl-paste is not installed. install it with your package manager (e.g. pacman -S wl-clipboard)"
 }
 
 # ---------------------------------------------------------------------------
@@ -518,7 +518,7 @@ start_beam_link() {
   link_disabled && die "Beam Link is disabled (links-only mode). Enable it by removing ~/.config/omarchy-beam/links-only or unsetting BEAM_DISABLE_LINK."
   require_qrencode
   have omarchy-shell || die "omarchy-shell not found — Omarchy Beam needs the Omarchy shell to display the overlay."
-  have python3 || die "Beam Link needs python3. Install it with: sudo pacman -S python"
+  have python3 || die "Beam Link needs python3. install it with your package manager (e.g. pacman -S python)"
   [[ -x "$SERVE_BIN" ]] || die "helper not found or not executable: $SERVE_BIN"
 
   link_stop
@@ -592,7 +592,7 @@ cmd_link_doctor() {
   printf 'serve helper : %s\n' "$SERVE_BIN"
   [[ -e "$SERVE_BIN" ]] && printf '  exists     : yes\n' || printf '  exists     : NO\n'
   [[ -x "$SERVE_BIN" ]] && printf '  executable : yes\n' || printf '  executable : NO (chmod +x it)\n'
-  if have python3; then printf 'python3      : %s\n' "$(python3 --version 2>&1)"; else printf 'python3      : NOT FOUND (sudo pacman -S python)\n'; fi
+  if have python3; then printf 'python3      : %s\n' "$(python3 --version 2>&1)"; else printf 'python3      : NOT FOUND (install python3)\n'; fi
   printf 'runtime dir  : %s\n\n' "$LINK_DIR"
 
   printf 'Starting the server for 5s (its URL or error follows):\n'
