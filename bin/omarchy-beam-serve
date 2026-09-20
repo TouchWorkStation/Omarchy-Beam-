@@ -263,7 +263,8 @@ async function copyItem(i, btn) {{
     return doc.encode("utf-8")
 
 
-def make_handler(token: str, entries: list[str], one_time: bool = False):
+def make_handler(token: str, entries: list[str], one_time: bool = False,
+                 verbose: bool = False):
     page = render_page(entries, one_time)
     token_path = "/" + token
     state = {"served": False}
@@ -274,6 +275,13 @@ def make_handler(token: str, entries: list[str], one_time: bool = False):
 
         def log_message(self, *args):  # never log requests (privacy)
             pass
+
+        def log_request(self, code="-", size="-"):
+            # Only when --verbose: method + client + status, never the token or
+            # any clipboard content. Helps confirm whether the phone connects.
+            if verbose:
+                print(f"[beam] {self.command} from {self.client_address[0]} -> {code}",
+                      file=sys.stderr, flush=True)
 
         def _status(self, code):
             self.send_response(code)
@@ -323,6 +331,8 @@ def main() -> int:
     ap.add_argument("--url-file", help="write the URL here once bound")
     ap.add_argument("--pid-file", help="write this process's PID here")
     ap.add_argument("--host", help="LAN IP to advertise in the URL (default: auto-detect)")
+    ap.add_argument("--verbose", action="store_true",
+                    help="log each incoming request (method/client/status) to stderr")
     args = ap.parse_args()
 
     entries = read_entries(args.count, args.current)
@@ -332,7 +342,8 @@ def main() -> int:
     ip = (args.host or lan_ip()).strip()
     # Listen on every interface so the phone can reach us regardless of which
     # address auto-detection chose; the URL still advertises the LAN IP above.
-    httpd = BeamServer(("0.0.0.0", 0), make_handler(token, entries, args.one_time))
+    httpd = BeamServer(("0.0.0.0", 0),
+                       make_handler(token, entries, args.one_time, args.verbose))
     port = httpd.server_address[1]
     url = f"http://{ip}:{port}/{token}"
 

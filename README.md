@@ -273,6 +273,12 @@ sudo pacman -S python                      # only if you use --link
   (e.g. missing `python3`), plus your host's IP addresses. (Fixed in v0.3.5: on
   hosts with a VPN such as Tailscale, the server used to stall on a reverse-DNS
   lookup at bind time — update if you're on an older version.)
+- **See exactly what the phone does** — run the server in the foreground with
+  request logging and scan it: `~/.config/omarchy/plugins/beam/bin/omarchy-beam-serve --count 3 --ttl 300 --verbose`.
+  It prints the URL and logs each hit (`[beam] GET from <ip> -> 200`). If your
+  phone's request never appears, it never reached the desktop (scanner didn't
+  open the link, or a network/firewall issue); if it shows `-> 200`, the page
+  was served and the problem is on the phone's rendering side.
 - **Beam Link page won't open on my phone** — check, in order:
   1. **Same Wi-Fi?** Phone and desktop must be on the same network (and not a
      "guest" SSID — those often isolate devices from each other).
