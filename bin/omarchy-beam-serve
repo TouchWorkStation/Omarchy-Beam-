@@ -19,6 +19,8 @@ This is invoked by `omarchy-beam --link`; it is not meant to be run by hand,
 though it can be for testing.
 """
 
+from __future__ import annotations  # keep annotations un-evaluated (py3.7+ safe)
+
 import argparse
 import html
 import hmac
