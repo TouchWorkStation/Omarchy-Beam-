@@ -198,6 +198,11 @@ when you close the overlay. Nothing is uploaded to any cloud.
   just the current clipboard. Requires `python3`. The count picker uses
   `walker` (or `fuzzel`/`wofi`/…); with none installed it uses a default of 5
   (set it in `~/.config/omarchy-beam/link-count`).
+- The URL shows your auto-detected LAN IP. If your phone can't reach it (VPN,
+  Docker, or multiple network interfaces can hide the real one), set the right
+  address yourself: `export BEAM_LINK_HOST=192.168.x.y` (find it with
+  `ip -4 addr`). The overlay prints the IP under the QR so you can sanity-check
+  it at a glance.
 
 ## Privacy
 
@@ -258,6 +263,17 @@ sudo pacman -S python                      # only if you use --link
   URL and a server, which Beam deliberately avoids.)
 - **Plugin not loading** — run `omarchy plugin validate .` in the plugin folder
   and `omarchy-shell shell rescanPlugins`.
+- **Beam Link page won't open on my phone** — check, in order:
+  1. **Same Wi-Fi?** Phone and desktop must be on the same network (and not a
+     "guest" SSID — those often isolate devices from each other).
+  2. **Right IP?** Look at the address under the QR. Compare with `ip -4 addr`
+     on the desktop. If it's a VPN/Docker/`127.` address, set the real one:
+     `export BEAM_LINK_HOST=192.168.x.y` (and re-run, or put it in your shell
+     profile / the keybind: `env BEAM_LINK_HOST=192.168.x.y omarchy-beam --link`).
+  3. **Server up?** On the desktop, `curl -s -o /dev/null -w '%{http_code}\n' "<the URL under the QR>"` should print `200`.
+  4. **Firewall?** If curl works locally but the phone times out, a firewall is
+     blocking the port. Allow it, e.g. `sudo ufw allow from 192.168.0.0/16` (or
+     your subnet). Omarchy has no firewall by default, so this is rare.
 
 ## Uninstall
 
