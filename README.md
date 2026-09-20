@@ -182,11 +182,12 @@ when you close the overlay. Nothing is uploaded to any cloud.
   just the current clipboard. Requires `python3`. The count picker uses
   `walker` (or `fuzzel`/`wofi`/…); with none installed it uses a default of 5
   (set it in `~/.config/omarchy-beam/link-count`).
-- The URL shows your auto-detected LAN IP. If your phone can't reach it (VPN,
-  Docker, or multiple network interfaces can hide the real one), set the right
-  address yourself: `export BEAM_LINK_HOST=192.168.x.y` (find it with
-  `ip -4 addr`). The overlay prints the IP under the QR so you can sanity-check
-  it at a glance.
+- The URL shows your auto-detected LAN IP. Detection prefers a real private LAN
+  address and skips Tailscale/CGNAT (`100.64/10`) and loopback, so a VPN
+  shouldn't hijack it. If it still picks the wrong one (Docker, several NICs),
+  set it yourself: `export BEAM_LINK_HOST=192.168.x.y` (find it with
+  `ip -4 addr`). The overlay prints the IP under the QR so you can check at a
+  glance.
 
 ## Privacy
 

@@ -59,29 +59,85 @@ STATE_HISTORY = os.path.join(
 )
 
 
+def _is_cgnat(ip: str) -> bool:
+    """100.64.0.0/10 — carrier-grade NAT, also the range Tailscale hands out.
+    A phone on Wi-Fi (not on the tailnet) can't reach these, so they make a bad
+    default for the QR URL."""
+    try:
+        a, b = (int(x) for x in ip.split(".")[:2])
+        return a == 100 and 64 <= b <= 127
+    except ValueError:
+        return False
+
+
+def _lan_rank(ip: str) -> int:
+    """Prefer real LAN ranges over anything else."""
+    if ip.startswith("192.168."):
+        return 0
+    if ip.startswith("10."):
+        return 1
+    if ip.startswith("172."):
+        try:
+            if 16 <= int(ip.split(".")[1]) <= 31:
+                return 2
+        except ValueError:
+            pass
+    return 9  # public or unknown — usable, but last resort
+
+
+def _iface_ips() -> list[str]:
+    """Global-scope IPv4 addresses from `ip addr` (if available)."""
+    ips: list[str] = []
+    try:
+        out = subprocess.run(
+            ["ip", "-4", "-o", "addr", "show", "scope", "global"],
+            capture_output=True, text=True, timeout=2,
+        ).stdout
+        for line in out.splitlines():
+            parts = line.split()
+            for i, tok in enumerate(parts):
+                if tok == "inet" and i + 1 < len(parts):
+                    ips.append(parts[i + 1].split("/")[0])
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return ips
+
+
 def lan_ip() -> str:
     """Best-effort LAN IP the phone should use to reach this host.
 
-    Override with BEAM_LINK_HOST / --host when auto-detection picks the wrong
-    interface (VPN, Docker, multiple NICs). Detection uses the source address
-    the kernel would choose for internet-bound traffic — i.e. the default-route
-    interface — trying a couple of targets and ignoring loopback.
+    Prefers a real private LAN address (192.168/10/172.16-31) and skips
+    loopback, link-local, and Tailscale/CGNAT (100.64/10) — a common wrong
+    pick on machines running a VPN. Override with BEAM_LINK_HOST / --host.
     """
     override = os.environ.get("BEAM_LINK_HOST")
     if override:
         return override.strip()
+
+    candidates: list[str] = []
+    # The source address the kernel would use for internet-bound traffic.
     for target in ("1.1.1.1", "8.8.8.8", "192.0.2.1"):
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
             s.connect((target, 9))  # no packets sent; just selects a route/source
-            ip = s.getsockname()[0]
-            if ip and not ip.startswith("127."):
-                return ip
+            candidates.append(s.getsockname()[0])
         except OSError:
             pass
         finally:
             s.close()
-    return "127.0.0.1"
+    candidates += _iface_ips()
+
+    usable = [
+        ip for ip in candidates
+        if ip and not ip.startswith("127.")
+        and not ip.startswith("169.254.")
+        and not _is_cgnat(ip)
+    ]
+    if usable:
+        usable.sort(key=_lan_rank)
+        return usable[0]
+    # Nothing but loopback/CGNAT — fall back to whatever we found.
+    return next((ip for ip in candidates if ip), "127.0.0.1")
 
 
 def current_clipboard() -> str:
