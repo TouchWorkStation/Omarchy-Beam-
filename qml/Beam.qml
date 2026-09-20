@@ -51,6 +51,12 @@ Item {
   readonly property bool showingMessage: !loading && !showingQr && status !== ""
 
   readonly property string fontFamily: Style.font.family
+  // Omarchy-green frame around the QR (sampled from the Beam logo). Override with
+  // BEAM_FRAME_COLOR to match a different theme.
+  readonly property color brandGreen: {
+    var c = Quickshell.env("BEAM_FRAME_COLOR")
+    return (c && c.length > 0) ? c : "#98c868"
+  }
 
   function open(payloadJson) {
     root.opened = true
@@ -242,53 +248,44 @@ Item {
             // a white canvas — crisp, no image files, no file-cache races. Only
             // the dark modules paint, so the white canvas keeps rounded corners;
             // the spec quiet zone is baked into the matrix by qrencode.
+            // The QR sits inside an Omarchy-green frame. The frame is OUTSIDE the
+            // code's quiet zone (a white margin baked into the matrix), so it
+            // never touches the scannable area — pure branding, always renders.
             Rectangle {
-              id: qrCanvas
-              readonly property int moduleSize: root.qrSize > 0
-                ? Math.max(4, Math.floor(Style.space(240) / root.qrSize))
-                : 0
-
+              id: qrFrame
+              readonly property int pad: Style.space(14)
               visible: root.showingQr
-              width: root.qrSize * moduleSize
-              height: width
-              color: "white"
-              radius: Style.cornerRadius
+              color: root.brandGreen
+              radius: Style.cornerRadius > 0 ? Style.cornerRadius + Style.space(10) : Style.space(12)
+              implicitWidth: qrCanvas.width + pad * 2
+              implicitHeight: qrCanvas.height + pad * 2
               Layout.alignment: Qt.AlignHCenter
 
-              Grid {
-                anchors.centerIn: parent
-                columns: root.qrSize
-                Repeater {
-                  model: root.showingQr ? root.qrSize * root.qrSize : 0
-                  Rectangle {
-                    required property int index
-                    readonly property int matrixRow: Math.floor(index / root.qrSize)
-                    readonly property int matrixColumn: index % root.qrSize
-                    width: qrCanvas.moduleSize
-                    height: qrCanvas.moduleSize
-                    color: root.qrRows[matrixRow].charAt(matrixColumn) === "1" ? "#111111" : "transparent"
-                  }
-                }
-              }
-
-              // Branded centre mark. Level-H error correction (see the CLI) lets
-              // the QR survive the covered modules; the white pad keeps the logo
-              // clear of the surrounding code so it still scans cleanly.
               Rectangle {
-                visible: root.showingQr
+                id: qrCanvas
+                readonly property int moduleSize: root.qrSize > 0
+                  ? Math.max(4, Math.floor(Style.space(240) / root.qrSize))
+                  : 0
                 anchors.centerIn: parent
-                width: Math.round(qrCanvas.width * 0.22)
+                width: root.qrSize * moduleSize
                 height: width
-                radius: Math.max(2, Math.round(width * 0.16))
                 color: "white"
-                Image {
+                radius: Math.max(0, Style.cornerRadius - Style.space(2))
+
+                Grid {
                   anchors.centerIn: parent
-                  width: Math.round(parent.width * 0.80)
-                  height: width
-                  source: Qt.resolvedUrl("assets/logo.png")
-                  fillMode: Image.PreserveAspectFit
-                  smooth: true
-                  mipmap: true
+                  columns: root.qrSize
+                  Repeater {
+                    model: root.showingQr ? root.qrSize * root.qrSize : 0
+                    Rectangle {
+                      required property int index
+                      readonly property int matrixRow: Math.floor(index / root.qrSize)
+                      readonly property int matrixColumn: index % root.qrSize
+                      width: qrCanvas.moduleSize
+                      height: qrCanvas.moduleSize
+                      color: root.qrRows[matrixRow].charAt(matrixColumn) === "1" ? "#111111" : "transparent"
+                    }
+                  }
                 }
               }
             }
