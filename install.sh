@@ -30,7 +30,7 @@ command -v wl-paste  >/dev/null 2>&1 || missing+=("wl-clipboard")
 command -v qrencode  >/dev/null 2>&1 || missing+=("qrencode")
 if (( ${#missing[@]} )); then
   yellow "Missing dependencies: ${missing[*]}"
-  echo   "  Install them with: sudo pacman -S ${missing[*]}"
+  echo   "  Install them with your package manager, e.g. pacman -S ${missing[*]}"
 fi
 
 case ":$PATH:" in
