@@ -1,13 +1,8 @@
 # Screenshots
 
-Live captures of the Beam overlay go here (they require a running Omarchy
-session, which the build environment doesn't have).
+- `overlay.jpg` — the Beam overlay on a live Omarchy session (a URL beamed,
+  "Scan to open"). Used as the demo image in the top-level `README.md`.
 
-Suggested shots:
-
-- `overlay-url.png` — a URL beamed ("Scan to open").
-- `overlay-text.png` — a shell command beamed ("Scan to copy").
-- `overlay-theme.png` — the same overlay under a different Omarchy theme.
-
-Capture on Omarchy with `Super + Print` (region) or `omarchy-capture-region`.
-Reference them from the top-level `README.md` once added.
+More shots welcome, e.g. a shell command ("Scan to copy") or the overlay under
+a different Omarchy theme. Capture on Omarchy with `Super + Print` (region) or
+`omarchy-capture-region`.
