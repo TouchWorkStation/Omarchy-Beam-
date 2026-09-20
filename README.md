@@ -21,7 +21,7 @@ A centered card on a dark scrim, styled with your current Omarchy theme, with th
 Beam mark in the middle of the code:
 
 <p align="center">
-  <img src="screenshots/overlay.jpg" alt="Omarchy Beam overlay: a QR code labelled BEAM with the clipboard URL and SCAN TO OPEN" width="320">
+  <img src="preview.png" alt="Omarchy Beam overlay: a QR code in the green Beam frame, labelled BEAM with the link and SCAN TO OPEN" width="420">
 </p>
 
 Three ways to beam a link:
