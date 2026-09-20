@@ -28,10 +28,30 @@ import json
 import os
 import signal
 import socket
+import socketserver
 import subprocess
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+
+class BeamServer(ThreadingHTTPServer):
+    """A ThreadingHTTPServer that does NOT do a reverse-DNS lookup at bind time.
+
+    http.server's default server_bind() calls socket.getfqdn(host), which can
+    block for many seconds on machines with slow or VPN-managed DNS (e.g.
+    Tailscale/MagicDNS). That would hang startup before the URL is ever printed.
+    We bind via the plain TCP server and set the name fields without any lookup.
+    """
+
+    daemon_threads = True
+    allow_reuse_address = True
+
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = host
+        self.server_port = port
 
 STATE_HISTORY = os.path.join(
     os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")),
@@ -227,7 +247,7 @@ def main() -> int:
     ip = (args.host or lan_ip()).strip()
     # Listen on every interface so the phone can reach us regardless of which
     # address auto-detection chose; the URL still advertises the LAN IP above.
-    httpd = ThreadingHTTPServer(("0.0.0.0", 0), make_handler(token, entries))
+    httpd = BeamServer(("0.0.0.0", 0), make_handler(token, entries))
     port = httpd.server_address[1]
     url = f"http://{ip}:{port}/{token}"
 
