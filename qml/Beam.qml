@@ -251,8 +251,8 @@ Item {
             // pure-QML green border stands in so branding never simply vanishes.
             Item {
               id: qrFrame
-              // The QR fills ~54% of the glyph; the rest is the surrounding art.
-              readonly property real fillRatio: 0.54
+              // The QR fills ~68% of the glyph; the rest is the surrounding frame art.
+              readonly property real fillRatio: 0.68
               visible: root.showingQr
               implicitWidth: Math.round(qrCanvas.width / fillRatio)
               implicitHeight: implicitWidth
