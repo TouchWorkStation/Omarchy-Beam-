@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "id": "beam",
   "name": "Omarchy Beam",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "author": "TouchWorkStation",
-  "description": "Beam your clipboard to any device — copy, press a shortcut, scan a QR code.",
+  "description": "Turn any link into a scannable QR code — copy or pass a link, press a shortcut, scan. Optional local clipboard-history server.",
   "kinds": [
     "overlay"
   ],

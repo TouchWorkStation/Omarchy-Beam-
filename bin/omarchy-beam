@@ -26,7 +26,7 @@
 
 set -uo pipefail
 
-readonly BEAM_VERSION="0.4.1"
+readonly BEAM_VERSION="0.5.0"
 readonly PLUGIN_ID="beam"
 
 # Maximum clipboard size we will turn into a QR code. Small pieces of info is
@@ -34,10 +34,10 @@ readonly PLUGIN_ID="beam"
 # scan. Override with BEAM_MAX_BYTES if you really need to.
 MAX_BYTES="${BEAM_MAX_BYTES:-1200}"
 
-# qrencode settings. Level M (~15% recovery) survives screen glare and camera
-# noise far better than the default L, and the payload cap keeps the code from
-# getting too dense. Margin 4 is the spec-required quiet zone.
-readonly QR_LEVEL="M"
+# qrencode settings. Level H (~30% recovery) is high enough that the centered
+# Beam logo can cover the middle of the code and it still scans; it also shrugs
+# off screen glare and camera noise. Margin 4 is the spec-required quiet zone.
+readonly QR_LEVEL="H"
 readonly QR_MARGIN="4"
 
 # Prefer a UTF-8 locale so string length and truncation are multibyte-aware
@@ -135,6 +135,16 @@ LINK_DIR="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/omarchy-beam"
 LINK_URL_FILE="$LINK_DIR/link.url"
 LINK_PID_FILE="$LINK_DIR/link.pid"
 LINK_MODE_FILE="$LINK_DIR/link.mode"   # "link" or "secret" — steers the overlay label
+PAYLOAD_FILE="$LINK_DIR/payload"       # a one-shot literal to beam (from `omarchy-beam <link>`)
+
+# Links-only mode: disable the clipboard-history web server entirely, so Beam is
+# purely "copy/pass a link -> QR". Set BEAM_DISABLE_LINK=1 or create
+# ~/.config/omarchy-beam/links-only.
+link_disabled() {
+  [[ "${BEAM_DISABLE_LINK:-}" == "1" ]] && return 0
+  [[ -e "${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-beam/links-only" ]] && return 0
+  return 1
+}
 
 link_server_alive() {
   local pid
@@ -154,7 +164,7 @@ link_stop() {
     pid="$(cat "$LINK_PID_FILE" 2>/dev/null)"
     [[ -n "$pid" ]] && kill "$pid" 2>/dev/null
   fi
-  rm -f "$LINK_URL_FILE" "$LINK_PID_FILE" "$LINK_MODE_FILE" 2>/dev/null
+  rm -f "$LINK_URL_FILE" "$LINK_PID_FILE" "$LINK_MODE_FILE" "$PAYLOAD_FILE" 2>/dev/null
   return 0
 }
 
@@ -347,13 +357,15 @@ qr_matrix() {
 
 cmd_help() {
   cat <<'EOF'
-Omarchy Beam — Beam your clipboard to any device.
+Omarchy Beam — turn any link into a scannable QR code.
 
-  Copy → Super + Shift + Q → Scan
+  Copy a link → Super + Shift + Q → Scan     (or: omarchy-beam <link>)
 
 USAGE
-  omarchy-beam                 Toggle the Beam overlay for the current clipboard
-  omarchy-beam --link [N]      Beam Link: share the last N clipboard entries as a
+  omarchy-beam                 Beam the current clipboard as a QR (toggle overlay)
+  omarchy-beam <link>          Beam a link/text given here (no clipboard change);
+                               also prints the QR in the terminal
+  omarchy-beam --link [N]      Beam Link (optional web-server module): share the
                                local web page (QR to open on your phone). With no
                                N, a picker asks how many. Use 'current' for just
                                the current clipboard, 'all' for full history.
@@ -365,14 +377,18 @@ USAGE
   omarchy-beam --help          Show this help
   omarchy-beam --version       Show the version
 
-The overlay classifies the clipboard automatically and shows the matching
-action: Scan to open (URL), Scan to copy (text), Scan to email (mailto:),
-Scan to call (tel:), or Scan to join (Wi-Fi QR). Press Esc or click outside
-the card to close it.
+Beam classifies content automatically and shows the matching action: Scan to
+open (URL), Scan to copy (text), Scan to email (mailto:), Scan to call (tel:),
+or Scan to join (Wi-Fi QR). Press Esc or click outside the card to close it.
+
+The clipboard-history web server (--link / --secret) is an optional module. For
+a links-only install, set BEAM_DISABLE_LINK=1 or create
+~/.config/omarchy-beam/links-only.
 
 PRIVACY
-  Everything is local. Your clipboard never leaves this machine except
-  visually, through the QR code. No accounts, no cloud, no network, no history.
+  The core is fully local: your data never leaves this machine except visually,
+  through the QR code. No accounts, cloud, or history. (Beam Link, if you use
+  it, serves over your LAN only — see the README.)
 EOF
 }
 
@@ -383,6 +399,24 @@ cmd_version() { printf 'omarchy-beam %s\n' "$BEAM_VERSION"; }
 # status "ok", the QR module matrix. status is one of ok|empty|toolarge.
 cmd_emit() {
   require_qrencode
+
+  # One-shot literal: `omarchy-beam <link>` dropped a payload for us to beam.
+  # Consumed on read so a re-open falls back to the clipboard.
+  if [[ -s "$PAYLOAD_FILE" ]]; then
+    local pcontent preview matrix
+    pcontent="$(cat "$PAYLOAD_FILE" 2>/dev/null)"
+    rm -f "$PAYLOAD_FILE" 2>/dev/null
+    classify "$pcontent"
+    preview="$(preview_of "${BEAM_DISPLAY:-$BEAM_PAYLOAD}" "$BEAM_KIND")"
+    matrix="$(printf '%s' "$BEAM_PAYLOAD" | qr_matrix)"
+    if [[ -n "$matrix" ]]; then
+      printf 'meta\t%s\t%s\t%s\t%s\n' "ok" "$BEAM_KIND" "$BEAM_LABEL" "$preview"
+      printf '%s\n' "$matrix"
+      return 0
+    fi
+    printf 'meta\t%s\t%s\t%s\t%s\n' "toolarge" "" "Too large to Beam" ""
+    return 0
+  fi
 
   # Beam Link mode: if a link server is running, show a QR of its URL instead
   # of the clipboard. No clipboard access is needed in this branch.
@@ -481,6 +515,7 @@ start_beam_link() {
   local mode="$1"; shift
   local args=("$@")
 
+  link_disabled && die "Beam Link is disabled (links-only mode). Enable it by removing ~/.config/omarchy-beam/links-only or unsetting BEAM_DISABLE_LINK."
   require_qrencode
   have omarchy-shell || die "omarchy-shell not found — Omarchy Beam needs the Omarchy shell to display the overlay."
   have python3 || die "Beam Link needs python3. Install it with: sudo pacman -S python"
@@ -573,6 +608,32 @@ cmd_link_doctor() {
   fi
 }
 
+# Beam an explicit link/text given on the command line, without touching the
+# clipboard: `omarchy-beam https://example.com`. In a terminal it also prints
+# the QR inline; it always opens the overlay too. Great for distributing a link.
+cmd_beam_arg() {
+  local text="$1"
+  require_qrencode
+  [[ -n "${text//[[:space:]]/}" ]] || die "nothing to beam"
+  local bytes; bytes="$(printf '%s' "$text" | wc -c)"
+  (( bytes > MAX_BYTES )) && die "too large to beam ($(human_size "$bytes"), limit $(human_size "$MAX_BYTES"))"
+
+  # If we're in a terminal, show the QR right here too (handy for scripts/SSH).
+  if [[ -t 1 ]]; then
+    classify "$text"
+    printf '%s' "$BEAM_PAYLOAD" | qrencode --type ANSIUTF8 --margin 2 --level "$QR_LEVEL" 2>/dev/null
+    printf '%s — %s\n' "$BEAM_LABEL" "$(preview_of "${BEAM_DISPLAY:-$BEAM_PAYLOAD}" "$BEAM_KIND")"
+  fi
+
+  # Open the branded overlay for this link (no clipboard side effects).
+  if have omarchy-shell; then
+    link_stop
+    mkdir -p "$LINK_DIR" && chmod 700 "$LINK_DIR" 2>/dev/null
+    printf '%s' "$text" >"$PAYLOAD_FILE" 2>/dev/null && chmod 600 "$PAYLOAD_FILE" 2>/dev/null
+    omarchy-shell shell summon "$PLUGIN_ID" '{}' >/dev/null 2>&1 || rm -f "$PAYLOAD_FILE"
+  fi
+}
+
 # Default: toggle the overlay in the running Omarchy shell.
 cmd_toggle() {
   # A normal invocation always exits any active link mode so it shows the
@@ -617,7 +678,8 @@ main() {
     --link-doctor) cmd_link_doctor ;;
     -)             cmd_pipe ;;
     "")            cmd_toggle ;;
-    *)             die "unknown option: $1 (try --help)" ;;
+    -*)            die "unknown option: $1 (try --help)" ;;
+    *)             cmd_beam_arg "$1" ;;
   esac
 }
 

@@ -197,6 +197,14 @@ else
   echo "  -- python3/curl not available; skipping Beam Link server tests"
 fi
 
+echo "Beam a link by argument (one-shot payload)"
+_rt3="$(mktemp -d)"; mkdir -p "$_rt3/omarchy-beam"
+printf 'https://example.com/x' >"$_rt3/omarchy-beam/payload"
+out3="$(XDG_RUNTIME_DIR="$_rt3" "$ROOT/bin/omarchy-beam" --emit | head -1)"
+[[ "$out3" == meta$'\t'ok$'\t'url$'\t'* ]] && ok "argument payload is beamed as a QR" || bad "payload emit (got [$out3])"
+[[ ! -e "$_rt3/omarchy-beam/payload" ]] && ok "payload is consumed (one-shot)" || bad "payload not consumed"
+rm -rf "$_rt3"
+
 echo
 echo "Passed: $pass   Failed: $fail"
 [[ "$fail" -eq 0 ]]
