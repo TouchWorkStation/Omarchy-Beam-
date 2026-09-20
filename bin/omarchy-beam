@@ -4,9 +4,15 @@
 #
 # Copy anything -> press a shortcut -> scan a QR code with your phone.
 #
-# Everything runs locally. Clipboard contents never leave the machine except
-# visually, through the QR code you scan. No accounts, no pairing, no cloud,
-# no network requests, no clipboard history, no logging of contents.
+# Everything runs locally. In the default (QR) mode, clipboard contents never
+# leave the machine except visually, through the QR code you scan: no accounts,
+# no pairing, no cloud, no network requests, no logging of contents.
+#
+# The opt-in "Beam Link" mode (--link) is the one exception: it serves recent
+# clipboard entries from a tiny web server on THIS machine, reachable over your
+# own LAN via a tokened URL, so a phone can copy them. Still no cloud — the data
+# stays on your machine/network — but it does travel over your Wi-Fi and exposes
+# history to whoever holds the link, so it is never the default.
 #
 # Usage:
 #   omarchy-beam              Toggle the Beam overlay for the current clipboard
@@ -20,7 +26,7 @@
 
 set -uo pipefail
 
-readonly BEAM_VERSION="0.2.0"
+readonly BEAM_VERSION="0.3.0"
 readonly PLUGIN_ID="beam"
 
 # Maximum clipboard size we will turn into a QR code. Small pieces of info is
@@ -108,6 +114,82 @@ require_qrencode() {
 
 require_clipboard() {
   have wl-paste || die "wl-paste is not installed. Install it with: sudo pacman -S wl-clipboard"
+}
+
+# ---------------------------------------------------------------------------
+# Beam Link — an opt-in, short-lived LOCAL web page for clipboard history
+# ---------------------------------------------------------------------------
+#
+# `omarchy-beam --link [N]` starts omarchy-beam-serve (a tiny web server bound
+# to this machine's LAN address) and shows a QR of its URL. A phone on the same
+# Wi-Fi opens the link and can copy any of the last N clipboard entries. The
+# server self-expires (TTL) and is stopped when the overlay closes. Data stays
+# on your machine/LAN — nothing is uploaded to any cloud.
+
+# Resolve the sibling helper (works from the plugin dir or a PATH symlink).
+SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+SERVE_BIN="${OMARCHY_BEAM_SERVE:-$SCRIPT_DIR/omarchy-beam-serve}"
+
+LINK_DIR="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/omarchy-beam"
+LINK_URL_FILE="$LINK_DIR/link.url"
+LINK_PID_FILE="$LINK_DIR/link.pid"
+
+link_server_alive() {
+  local pid
+  [[ -r "$LINK_PID_FILE" ]] || return 1
+  pid="$(cat "$LINK_PID_FILE" 2>/dev/null)"
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+}
+
+# A link is "active" only when both the URL is present and its server is running.
+link_active() {
+  [[ -s "$LINK_URL_FILE" ]] && link_server_alive
+}
+
+link_stop() {
+  local pid
+  if [[ -r "$LINK_PID_FILE" ]]; then
+    pid="$(cat "$LINK_PID_FILE" 2>/dev/null)"
+    [[ -n "$pid" ]] && kill "$pid" 2>/dev/null
+  fi
+  rm -f "$LINK_URL_FILE" "$LINK_PID_FILE" 2>/dev/null
+  return 0
+}
+
+# Default entry count for --link when no argument and no picker (config file
+# ~/.config/omarchy-beam/link-count, else 5).
+resolve_link_count_default() {
+  local f="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy-beam/link-count" n=""
+  [[ -r "$f" ]] && n="$(tr -dc '0-9' <"$f" 2>/dev/null)"
+  [[ -n "$n" && "$n" -gt 0 ]] 2>/dev/null && printf '%s' "$n" || printf '5'
+}
+
+# Ask how many entries to share via the first available dmenu-style picker.
+# Prints "current" or an integer. Returns non-zero if the user cancels a real
+# picker; falls back to the default count when no picker is installed.
+prompt_count() {
+  local default menu choice picker found=""
+  default="$(resolve_link_count_default)"
+  menu=$'Current clipboard only\nLast 3\nLast 5\nLast 10\nLast 25\nAll history'
+  for picker in "walker --dmenu" "fuzzel --dmenu" "wofi --dmenu -i" "tofi" "bemenu -p Beam:"; do
+    if have "${picker%% *}"; then
+      found=1
+      choice="$(printf '%s' "$menu" | $picker 2>/dev/null)"
+      break
+    fi
+  done
+  if [[ -z "$found" ]]; then printf '%s' "$default"; return 0; fi
+  [[ -n "$choice" ]] || return 1   # user cancelled the picker
+  case "$choice" in
+    Current*) printf 'current' ;;
+    "Last 3") printf '3' ;;
+    "Last 5") printf '5' ;;
+    "Last 10") printf '10' ;;
+    "Last 25") printf '25' ;;
+    All*)      printf '500' ;;
+    *)         printf '%s' "$default" ;;
+  esac
 }
 
 # ---------------------------------------------------------------------------
@@ -270,6 +352,10 @@ Omarchy Beam — Beam your clipboard to any device.
 
 USAGE
   omarchy-beam                 Toggle the Beam overlay for the current clipboard
+  omarchy-beam --link [N]      Beam Link: share the last N clipboard entries as a
+                               local web page (QR to open on your phone). With no
+                               N, a picker asks how many. Use 'current' for just
+                               the current clipboard, 'all' for full history.
   echo "text" | omarchy-beam - Beam piped text as a QR in the terminal
   omarchy-beam --help          Show this help
   omarchy-beam --version       Show the version
@@ -292,6 +378,21 @@ cmd_version() { printf 'omarchy-beam %s\n' "$BEAM_VERSION"; }
 # status "ok", the QR module matrix. status is one of ok|empty|toolarge.
 cmd_emit() {
   require_qrencode
+
+  # Beam Link mode: if a link server is running, show a QR of its URL instead
+  # of the clipboard. No clipboard access is needed in this branch.
+  if link_active; then
+    local url host matrix
+    url="$(cat "$LINK_URL_FILE" 2>/dev/null)"
+    host="${url#http://}"; host="${host%%/*}"
+    matrix="$(printf '%s' "$url" | qr_matrix)"
+    if [[ -n "$matrix" ]]; then
+      printf 'meta\t%s\t%s\t%s\t%s\n' "ok" "link" "Scan to open on your phone" "$host"
+      printf '%s\n' "$matrix"
+      return 0
+    fi
+  fi
+
   require_clipboard
 
   local status kind label preview
@@ -362,8 +463,62 @@ cmd_pipe() {
   printf '\n%s — %s\n' "$BEAM_LABEL" "$(preview_of "${BEAM_DISPLAY:-$BEAM_PAYLOAD}" "$BEAM_KIND")"
 }
 
+# Beam Link: start the LAN server and show its URL as a QR in the overlay.
+cmd_link() {
+  require_qrencode
+  have omarchy-shell || die "omarchy-shell not found — Omarchy Beam needs the Omarchy shell to display the overlay."
+  have python3 || die "Beam Link needs python3. Install it with: sudo pacman -S python"
+  [[ -x "$SERVE_BIN" ]] || die "helper not found or not executable: $SERVE_BIN"
+
+  # Resolve how many entries to share: explicit arg, else a picker prompt.
+  local sel
+  if [[ -n "${1:-}" ]]; then
+    case "$1" in
+      current|--current) sel="current" ;;
+      all|--all)         sel="500" ;;
+      *[!0-9]*)          die "invalid count: $1 (use a number, 'current', or 'all')" ;;
+      *)                 sel="$1" ;;
+    esac
+  else
+    sel="$(prompt_count)" || return 0   # cancelled
+  fi
+
+  link_stop
+  mkdir -p "$LINK_DIR" && chmod 700 "$LINK_DIR" 2>/dev/null
+
+  local ttl="${BEAM_LINK_TTL:-180}"
+  local args=(--ttl "$ttl" --url-file "$LINK_URL_FILE" --pid-file "$LINK_PID_FILE")
+  if [[ "$sel" == "current" ]]; then args+=(--current); else args+=(--count "$sel"); fi
+
+  # Fully detach so the server outlives this launcher; it self-expires via TTL
+  # and is stopped when the overlay closes.
+  if have setsid; then
+    setsid "$SERVE_BIN" "${args[@]}" >/dev/null 2>&1 </dev/null &
+  else
+    nohup "$SERVE_BIN" "${args[@]}" >/dev/null 2>&1 </dev/null &
+  fi
+  disown 2>/dev/null || true
+
+  # Wait (up to ~2s) for the server to bind and publish its URL.
+  local i
+  for (( i = 0; i < 40; i++ )); do
+    [[ -s "$LINK_URL_FILE" ]] && break
+    sleep 0.05
+  done
+  [[ -s "$LINK_URL_FILE" ]] || { link_stop; die "could not start the Beam Link server"; }
+
+  omarchy-shell shell summon "$PLUGIN_ID" '{}' \
+    || { link_stop; die "could not reach the Omarchy shell (is it running?)."; }
+}
+
+# Stop a running Beam Link server (called by the overlay when it closes).
+cmd_link_stop() { link_stop; }
+
 # Default: toggle the overlay in the running Omarchy shell.
 cmd_toggle() {
+  # A normal invocation always exits any active link mode so it shows the
+  # clipboard, not a stale link.
+  link_stop
   require_clipboard
   have omarchy-shell || die "omarchy-shell not found — Omarchy Beam needs the Omarchy shell to display the overlay."
 
@@ -397,6 +552,8 @@ main() {
     -h|--help)     cmd_help ;;
     -V|--version)  cmd_version ;;
     --emit)        cmd_emit ;;
+    --link)        shift; cmd_link "${1:-}" ;;
+    --link-stop)   cmd_link_stop ;;
     -)             cmd_pipe ;;
     "")            cmd_toggle ;;
     *)             die "unknown option: $1 (try --help)" ;;

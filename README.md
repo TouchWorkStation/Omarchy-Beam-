@@ -162,14 +162,54 @@ a Beam limitation. Your options:
   A QR can never write to a phone's clipboard on its own; this just gets the
   text somewhere copyable without a scanner app.
 
+## Beam Link (opt-in) — copy from a page instead of a QR
+
+Some things don't fit a QR, or you want to copy *history*, not just one item.
+**Beam Link** serves your recent clipboard entries as a small web page **on your
+own machine**, reachable over your Wi-Fi:
+
+```bash
+omarchy-beam --link        # asks how many entries to share, then shows a QR
+omarchy-beam --link 10     # share the last 10 (skip the prompt)
+omarchy-beam --link current # just the current clipboard
+omarchy-beam --link all    # full history
+```
+
+Scan the QR (any camera — it's a normal URL) → your phone opens a page listing
+those entries, each with a **Copy** button and tap-to-select. Bind it to a key
+too, e.g.:
+
+```lua
+o.bind("SUPER + SHIFT + V", "Beam Link", "omarchy-beam --link")
+```
+
+**How it stays local:** the page is served by a tiny web server running on your
+computer, bound to your LAN address behind an unguessable token in the URL. It
+**self-expires** after a few minutes (`BEAM_LINK_TTL`, default 180s) and stops
+when you close the overlay. Nothing is uploaded to any cloud.
+
+**Know the trade-offs** (that's why it's opt-in, never the default):
+- Phone and desktop must be on the **same Wi-Fi**.
+- It exposes clipboard **history** to anyone who has the link while it's live.
+- The one-tap Copy button is best-effort over plain `http` (browsers restrict
+  the clipboard API on non-`https` origins); tap-to-select always works.
+- Reads Omarchy's existing clipboard history
+  (`~/.local/state/omarchy/clipboard-history.json`); if that's empty it serves
+  just the current clipboard. Requires `python3`. The count picker uses
+  `walker` (or `fuzzel`/`wofi`/…); with none installed it uses a default of 5
+  (set it in `~/.config/omarchy-beam/link-count`).
+
 ## Privacy
 
 Privacy is the point.
 
-- **Completely local.** Your clipboard never leaves the machine except visually,
-  as the QR code you scan.
-- **No** telemetry, analytics, API, cloud service, remote server, network
-  request, account, pairing, clipboard history, or database.
+- **Completely local.** In the default QR mode your clipboard never leaves the
+  machine except visually, as the QR code you scan.
+- **No** telemetry, analytics, API, cloud service, remote server, account, or
+  database — ever.
+- **The one network exception is Beam Link**, and only when *you* invoke it: it
+  serves data over your own LAN (never a third-party/cloud), behind a tokened,
+  self-expiring local URL. The default QR mode makes no network requests at all.
 - **No temp files** for the clipboard: the QR is drawn as native rectangles in
   the shell, not written to disk.
 - **Nothing logged.** Clipboard contents are never printed to logs.
@@ -184,11 +224,13 @@ Everything below already ships with Omarchy:
 - `omarchy-shell` (the Omarchy Quickshell desktop)
 - `wl-clipboard` (`wl-paste`)
 - `qrencode`
+- `python3` — only for **Beam Link** (`--link`); the QR modes don't need it.
 
 If a dependency is somehow missing, Beam tells you and how to install it:
 
 ```bash
-sudo pacman -S qrencode wl-clipboard
+sudo pacman -S qrencode wl-clipboard      # core
+sudo pacman -S python                      # only if you use --link
 ```
 
 ## Troubleshooting

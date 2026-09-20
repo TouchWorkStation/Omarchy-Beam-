@@ -137,6 +137,46 @@ else
   echo "  -- zbarimg not installed; skipping scannability round-trip"
 fi
 
+echo "Beam Link — count resolution"
+[[ "$(XDG_CONFIG_HOME=/nonexistent resolve_link_count_default)" == "5" ]] \
+  && ok "link count defaults to 5" || bad "link default count"
+_cfg="$(mktemp -d)"; mkdir -p "$_cfg/omarchy-beam"; echo 12 >"$_cfg/omarchy-beam/link-count"
+[[ "$(XDG_CONFIG_HOME=$_cfg resolve_link_count_default)" == "12" ]] \
+  && ok "link count reads config file" || bad "link config count"
+rm -rf "$_cfg"
+
+echo "Beam Link — server + link-mode emit"
+if command -v python3 >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
+  _st="$(mktemp -d)"; _rt="$(mktemp -d)"
+  mkdir -p "$_st/omarchy"
+  cat >"$_st/omarchy/clipboard-history.json" <<'JSON'
+[{"type":"text","text":"first entry"},{"type":"text","text":"second <b>&</b>"},{"type":"image","path":"/x.png"},{"type":"text","text":"third entry"}]
+JSON
+  ldir="$_rt/omarchy-beam"; mkdir -p "$ldir"
+  XDG_STATE_HOME="$_st" "$ROOT/bin/omarchy-beam-serve" --count 2 --ttl 15 \
+    --url-file "$ldir/link.url" --pid-file "$ldir/link.pid" >/dev/null 2>&1 &
+  for _ in $(seq 1 40); do [[ -s "$ldir/link.url" ]] && break; sleep 0.05; done
+  url="$(cat "$ldir/link.url" 2>/dev/null)"
+  if [[ -n "$url" ]]; then
+    page="$(curl -s "$url")"
+    [[ "$(grep -c 'class="item"' <<<"$page")" == "2" ]] && ok "server serves requested count (2, images skipped)" || bad "server count"
+    grep -q '&lt;b&gt;' <<<"$page" && ! grep -q '<b>&</b>' <<<"$page" && ok "server HTML-escapes entries" || bad "server escaping"
+    [[ "$(curl -s -o /dev/null -w '%{http_code}' "${url%/*}/wrongtoken")" == "404" ]] && ok "server rejects wrong token (404)" || bad "server token check"
+    # Link-mode emit shows a QR of the URL.
+    out="$(XDG_RUNTIME_DIR="$_rt" "$ROOT/bin/omarchy-beam" --emit | head -1)"
+    [[ "$out" == meta$'\t'ok$'\t'link$'\t'* ]] && ok "emit shows link QR when server is up" || bad "link emit (got [$out])"
+    # link-stop tears everything down.
+    XDG_RUNTIME_DIR="$_rt" "$ROOT/bin/omarchy-beam" --link-stop
+    sleep 0.3
+    [[ ! -e "$ldir/link.url" ]] && ok "link-stop removes state + kills server" || bad "link-stop cleanup"
+  else
+    bad "server did not publish a URL"
+  fi
+  rm -rf "$_st" "$_rt"
+else
+  echo "  -- python3/curl not available; skipping Beam Link server test"
+fi
+
 echo
 echo "Passed: $pass   Failed: $fail"
 [[ "$fail" -eq 0 ]]

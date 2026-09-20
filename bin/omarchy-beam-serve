@@ -1,0 +1,253 @@
+#!/usr/bin/env python3
+"""
+omarchy-beam-serve — Beam Link: a short-lived LOCAL web page for the clipboard.
+
+Serves the last N text entries from Omarchy's clipboard history (or just the
+current clipboard) on a random port bound to this machine's LAN address, behind
+an unguessable token in the URL. Your phone opens the link over your own Wi-Fi
+and can copy any item. Nothing is uploaded to any cloud — the data stays on your
+machine and travels only across your local network.
+
+Safeguards:
+  * binds to the LAN interface only, on an OS-assigned random port
+  * an unguessable token must be in the URL path
+  * the server shuts itself down after --ttl seconds
+  * no request logging; clipboard contents are never written to logs or disk
+  * every entry is HTML/JS-escaped before it reaches the page
+
+This is invoked by `omarchy-beam --link`; it is not meant to be run by hand,
+though it can be for testing.
+"""
+
+import argparse
+import html
+import hmac
+import json
+import os
+import signal
+import socket
+import subprocess
+import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+STATE_HISTORY = os.path.join(
+    os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")),
+    "omarchy", "clipboard-history.json",
+)
+
+
+def lan_ip() -> str:
+    """Best-effort LAN IP for this host (no packets are actually sent)."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("192.0.2.1", 9))  # TEST-NET-1; just picks the outbound iface
+        return s.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+    finally:
+        s.close()
+
+
+def current_clipboard() -> str:
+    try:
+        out = subprocess.run(
+            ["wl-paste", "--no-newline"],
+            capture_output=True, timeout=2,
+        )
+        return out.stdout.decode("utf-8", "replace")
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def read_entries(count: int, current_only: bool) -> list[str]:
+    """Return up to `count` recent text entries, newest first."""
+    if current_only:
+        text = current_clipboard()
+        return [text] if text.strip() else []
+
+    texts: list[str] = []
+    try:
+        with open(STATE_HISTORY, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data, list):
+            for entry in data:
+                if (isinstance(entry, dict) and entry.get("type") == "text"
+                        and str(entry.get("text", "")).strip()):
+                    texts.append(str(entry["text"]))
+    except (OSError, ValueError):
+        texts = []
+
+    if not texts:  # history disabled or empty — fall back to the live clipboard
+        text = current_clipboard()
+        if text.strip():
+            texts = [text]
+
+    return texts[: max(1, count)]
+
+
+def render_page(entries: list[str]) -> bytes:
+    # Embed the raw strings as a JS array (safely encoded) for the copy buttons,
+    # and also render an escaped, selectable copy of each for manual fallback.
+    payload = json.dumps(entries).replace("<", "\\u003c").replace("&", "\\u0026")
+
+    items = []
+    for i, text in enumerate(entries):
+        safe = html.escape(text)
+        items.append(
+            f'<li class="item">'
+            f'<pre class="text" onclick="selectText(this)">{safe}</pre>'
+            f'<button class="copy" onclick="copyItem({i}, this)">Copy</button>'
+            f'</li>'
+        )
+    body = "\n".join(items) if items else '<li class="empty">Nothing to beam.</li>'
+
+    doc = f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Beam</title>
+<style>
+  :root {{ color-scheme: dark; }}
+  * {{ box-sizing: border-box; }}
+  body {{ margin: 0; background: #101315; color: #cacccc;
+    font: 16px/1.5 system-ui, -apple-system, sans-serif; padding: 16px; }}
+  header {{ text-align: center; margin: 8px 0 20px; }}
+  h1 {{ font-size: 14px; letter-spacing: 4px; font-weight: 700; margin: 0; }}
+  .sub {{ font-size: 12px; color: #707880; margin-top: 4px; }}
+  ul {{ list-style: none; margin: 0; padding: 0; display: flex;
+    flex-direction: column; gap: 12px; }}
+  .item {{ background: #181c1f; border: 1px solid #262b2f; border-radius: 12px;
+    padding: 12px; }}
+  .text {{ margin: 0 0 10px; white-space: pre-wrap; word-break: break-word;
+    font-family: ui-monospace, monospace; font-size: 14px; max-height: 40vh;
+    overflow: auto; }}
+  .copy {{ width: 100%; padding: 12px; border: 0; border-radius: 10px;
+    background: #cacccc; color: #101315; font-weight: 700; font-size: 15px; }}
+  .copy:active {{ opacity: .7; }}
+  .empty {{ text-align: center; color: #707880; }}
+  footer {{ text-align: center; color: #707880; font-size: 11px; margin-top: 24px; }}
+</style>
+</head>
+<body>
+<header><h1>BEAM</h1><div class="sub">Tap Copy, or tap the text to select it</div></header>
+<ul>{body}</ul>
+<footer>Local link · closes itself shortly</footer>
+<script>
+const ENTRIES = {payload};
+function selectText(el) {{
+  const r = document.createRange(); r.selectNodeContents(el);
+  const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+}}
+async function copyItem(i, btn) {{
+  const text = ENTRIES[i]; const done = () => {{ btn.textContent = "Copied ✓";
+    setTimeout(() => btn.textContent = "Copy", 1200); }};
+  try {{ await navigator.clipboard.writeText(text); done(); return; }} catch (e) {{}}
+  const ta = document.createElement("textarea"); ta.value = text;
+  ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta);
+  ta.focus(); ta.select();
+  try {{ document.execCommand("copy"); done(); }}
+  catch (e) {{ btn.textContent = "Select the text above"; }}
+  document.body.removeChild(ta);
+}}
+</script>
+</body>
+</html>"""
+    return doc.encode("utf-8")
+
+
+def make_handler(token: str, entries: list[str]):
+    page = render_page(entries)
+    token_path = "/" + token
+
+    class Handler(BaseHTTPRequestHandler):
+        server_version = "BeamLink"
+
+        def log_message(self, *args):  # never log requests (privacy)
+            pass
+
+        def _deny(self):
+            self.send_response(404)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def do_GET(self):
+            # Constant-time token check; the token is the only valid path.
+            path = self.path.split("?", 1)[0].rstrip("/") or "/"
+            if not hmac.compare_digest(path, token_path):
+                self._deny()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(page)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header(
+                "Content-Security-Policy",
+                "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'",
+            )
+            self.end_headers()
+            self.wfile.write(page)
+
+    return Handler
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(add_help=True)
+    ap.add_argument("--count", type=int, default=5, help="recent text entries to serve")
+    ap.add_argument("--current", action="store_true", help="serve only the current clipboard")
+    ap.add_argument("--ttl", type=int, default=180, help="seconds before auto-shutdown")
+    ap.add_argument("--url-file", help="write the URL here once bound")
+    ap.add_argument("--pid-file", help="write this process's PID here")
+    args = ap.parse_args()
+
+    entries = read_entries(args.count, args.current)
+
+    import secrets
+    token = secrets.token_urlsafe(18)
+    ip = lan_ip()
+    httpd = ThreadingHTTPServer((ip, 0), make_handler(token, entries))
+    port = httpd.server_address[1]
+    url = f"http://{ip}:{port}/{token}"
+
+    if args.pid_file:
+        _write(args.pid_file, str(os.getpid()))
+    if args.url_file:
+        _write(args.url_file, url)
+    print(url, flush=True)
+
+    def shutdown(*_):
+        threading.Thread(target=httpd.shutdown, daemon=True).start()
+
+    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGINT, shutdown)
+    if args.ttl > 0:
+        threading.Timer(args.ttl, shutdown).start()
+
+    try:
+        httpd.serve_forever()
+    finally:
+        for f in (args.url_file, args.pid_file):
+            if f:
+                try:
+                    os.unlink(f)
+                except OSError:
+                    pass
+    return 0
+
+
+def _write(path: str, value: str):
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as fh:
+            fh.write(value)
+    except OSError:
+        pass
+
+
+if __name__ == "__main__":
+    sys.exit(main())
