@@ -173,8 +173,28 @@ JSON
     bad "server did not publish a URL"
   fi
   rm -rf "$_st" "$_rt"
+
+  echo "Beam Link — secret / one-time mode"
+  _rt2="$(mktemp -d)"; ldir2="$_rt2/omarchy-beam"; mkdir -p "$ldir2"
+  "$ROOT/bin/omarchy-beam-serve" --current --one-time --ttl 10 \
+    --url-file "$ldir2/link.url" --pid-file "$ldir2/link.pid" >/dev/null 2>&1 &
+  for _ in $(seq 1 40); do [[ -s "$ldir2/link.url" ]] && break; sleep 0.05; done
+  url2="$(cat "$ldir2/link.url" 2>/dev/null)"
+  printf 'secret' >"$ldir2/link.mode"
+  if [[ -n "$url2" ]]; then
+    out2="$(XDG_RUNTIME_DIR="$_rt2" "$ROOT/bin/omarchy-beam" --emit | head -1)"
+    [[ "$out2" == *$'\t'One-time\ secret* ]] && ok "emit shows the one-time secret label" || bad "secret label (got [$out2])"
+    body2="$(curl -s "$url2")"; code1="$(curl -s -o /dev/null -w '%{http_code}' "$url2" 2>/dev/null || echo 000)"
+    grep -q 'One-time link' <<<"$body2" && ok "one-time page shows the closed-link banner" || bad "one-time banner"
+    sleep 0.3
+    code2="$(curl -s -o /dev/null -w '%{http_code}' "$url2" 2>/dev/null || echo 000)"
+    [[ "$code2" != "200" ]] && ok "one-time server closes after first fetch (2nd=$code2)" || bad "one-time did not close"
+  else
+    bad "one-time server did not publish a URL"
+  fi
+  rm -rf "$_rt2"
 else
-  echo "  -- python3/curl not available; skipping Beam Link server test"
+  echo "  -- python3/curl not available; skipping Beam Link server tests"
 fi
 
 echo

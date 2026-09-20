@@ -26,7 +26,7 @@
 
 set -uo pipefail
 
-readonly BEAM_VERSION="0.3.6"
+readonly BEAM_VERSION="0.4.0"
 readonly PLUGIN_ID="beam"
 
 # Maximum clipboard size we will turn into a QR code. Small pieces of info is
@@ -134,6 +134,7 @@ SERVE_BIN="${OMARCHY_BEAM_SERVE:-$SCRIPT_DIR/omarchy-beam-serve}"
 LINK_DIR="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/omarchy-beam"
 LINK_URL_FILE="$LINK_DIR/link.url"
 LINK_PID_FILE="$LINK_DIR/link.pid"
+LINK_MODE_FILE="$LINK_DIR/link.mode"   # "link" or "secret" — steers the overlay label
 
 link_server_alive() {
   local pid
@@ -153,7 +154,7 @@ link_stop() {
     pid="$(cat "$LINK_PID_FILE" 2>/dev/null)"
     [[ -n "$pid" ]] && kill "$pid" 2>/dev/null
   fi
-  rm -f "$LINK_URL_FILE" "$LINK_PID_FILE" 2>/dev/null
+  rm -f "$LINK_URL_FILE" "$LINK_PID_FILE" "$LINK_MODE_FILE" 2>/dev/null
   return 0
 }
 
@@ -356,6 +357,9 @@ USAGE
                                local web page (QR to open on your phone). With no
                                N, a picker asks how many. Use 'current' for just
                                the current clipboard, 'all' for full history.
+  omarchy-beam --secret        Beam Link, one-time: the current clipboard only,
+                               served once over a short-lived local link and
+                               then closed. For keys/secrets on your own LAN.
   echo "text" | omarchy-beam - Beam piped text as a QR in the terminal
   omarchy-beam --link-doctor   Diagnose Beam Link (prints the server's output)
   omarchy-beam --help          Show this help
@@ -383,12 +387,18 @@ cmd_emit() {
   # Beam Link mode: if a link server is running, show a QR of its URL instead
   # of the clipboard. No clipboard access is needed in this branch.
   if link_active; then
-    local url host matrix
+    local url host matrix mode label
     url="$(cat "$LINK_URL_FILE" 2>/dev/null)"
     host="${url#http://}"; host="${host%%/*}"
+    mode="$(cat "$LINK_MODE_FILE" 2>/dev/null)"
+    if [[ "$mode" == "secret" ]]; then
+      label="One-time secret — scan once"
+    else
+      label="Scan to open on your phone"
+    fi
     matrix="$(printf '%s' "$url" | qr_matrix)"
     if [[ -n "$matrix" ]]; then
-      printf 'meta\t%s\t%s\t%s\t%s\n' "ok" "link" "Scan to open on your phone" "$host"
+      printf 'meta\t%s\t%s\t%s\t%s\n' "ok" "link" "$label" "$host"
       printf '%s\n' "$matrix"
       return 0
     fi
@@ -465,35 +475,24 @@ cmd_pipe() {
 }
 
 # Beam Link: start the LAN server and show its URL as a QR in the overlay.
-cmd_link() {
+# Shared launcher: start omarchy-beam-serve detached with the given serve args,
+# record the mode, wait for its URL, and summon the overlay to show the QR.
+start_beam_link() {
+  local mode="$1"; shift
+  local args=("$@")
+
   require_qrencode
   have omarchy-shell || die "omarchy-shell not found — Omarchy Beam needs the Omarchy shell to display the overlay."
   have python3 || die "Beam Link needs python3. Install it with: sudo pacman -S python"
   [[ -x "$SERVE_BIN" ]] || die "helper not found or not executable: $SERVE_BIN"
 
-  # Resolve how many entries to share: explicit arg, else a picker prompt.
-  local sel
-  if [[ -n "${1:-}" ]]; then
-    case "$1" in
-      current|--current) sel="current" ;;
-      all|--all)         sel="500" ;;
-      *[!0-9]*)          die "invalid count: $1 (use a number, 'current', or 'all')" ;;
-      *)                 sel="$1" ;;
-    esac
-  else
-    sel="$(prompt_count)" || return 0   # cancelled
-  fi
-
   link_stop
   mkdir -p "$LINK_DIR" && chmod 700 "$LINK_DIR" 2>/dev/null
+  printf '%s' "$mode" >"$LINK_MODE_FILE" 2>/dev/null
 
-  local ttl="${BEAM_LINK_TTL:-180}"
-  local args=(--ttl "$ttl" --url-file "$LINK_URL_FILE" --pid-file "$LINK_PID_FILE")
-  if [[ "$sel" == "current" ]]; then args+=(--current); else args+=(--count "$sel"); fi
-
-  # Fully detach so the server outlives this launcher; it self-expires via TTL
-  # and is stopped when the overlay closes. Its stderr is kept in a log so a
-  # startup failure can be reported instead of vanishing.
+  # Fully detach so the server outlives this launcher; it self-expires via TTL,
+  # after a one-time fetch, or when the overlay closes. Its stderr is kept in a
+  # log so a startup failure can be reported instead of vanishing.
   local log="$LINK_DIR/serve.log"
   : >"$log" 2>/dev/null
   if have setsid; then
@@ -517,6 +516,35 @@ cmd_link() {
 
   omarchy-shell shell summon "$PLUGIN_ID" '{}' \
     || { link_stop; die "could not reach the Omarchy shell (is it running?)."; }
+}
+
+cmd_link() {
+  # Resolve how many entries to share: explicit arg, else a picker prompt.
+  local sel
+  if [[ -n "${1:-}" ]]; then
+    case "$1" in
+      current|--current) sel="current" ;;
+      all|--all)         sel="500" ;;
+      *[!0-9]*)          die "invalid count: $1 (use a number, 'current', or 'all')" ;;
+      *)                 sel="$1" ;;
+    esac
+  else
+    sel="$(prompt_count)" || return 0   # cancelled
+  fi
+
+  local args=(--ttl "${BEAM_LINK_TTL:-180}" --url-file "$LINK_URL_FILE" --pid-file "$LINK_PID_FILE")
+  if [[ "$sel" == "current" ]]; then args+=(--current); else args+=(--count "$sel"); fi
+  start_beam_link "link" "${args[@]}"
+}
+
+# Secret mode: the current clipboard only, served exactly once, over a
+# short-lived link. Nothing is read from history and the server closes after the
+# first fetch. The secret travels only over your LAN (plain http) — fine at home,
+# not for a hostile network.
+cmd_secret() {
+  local args=(--current --one-time --ttl "${BEAM_SECRET_TTL:-45}" \
+    --url-file "$LINK_URL_FILE" --pid-file "$LINK_PID_FILE")
+  start_beam_link "secret" "${args[@]}"
 }
 
 # Stop a running Beam Link server (called by the overlay when it closes).
@@ -584,6 +612,7 @@ main() {
     -V|--version)  cmd_version ;;
     --emit)        cmd_emit ;;
     --link)        shift; cmd_link "${1:-}" ;;
+    --secret)      cmd_secret ;;
     --link-stop)   cmd_link_stop ;;
     --link-doctor) cmd_link_doctor ;;
     -)             cmd_pipe ;;

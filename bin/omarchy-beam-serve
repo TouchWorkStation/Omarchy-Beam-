@@ -177,10 +177,20 @@ def read_entries(count: int, current_only: bool) -> list[str]:
     return texts[: max(1, count)]
 
 
-def render_page(entries: list[str]) -> bytes:
+def render_page(entries: list[str], one_time: bool = False) -> bytes:
     # Embed the raw strings as a JS array (safely encoded) for the copy buttons,
     # and also render an escaped, selectable copy of each for manual fallback.
     payload = json.dumps(entries).replace("<", "\\u003c").replace("&", "\\u0026")
+
+    banner = (
+        '<div class="banner">🔒 One-time link — it is now closed on the desktop. '
+        'Copy below; reload will not work.</div>'
+        if one_time else ""
+    )
+    subtitle = ("This is a one-time secret" if one_time
+                else "Tap Copy, or tap the text to select it")
+    foot = ("One-time link · already closed" if one_time
+            else "Local link · closes itself shortly")
 
     items = []
     for i, text in enumerate(entries):
@@ -219,13 +229,17 @@ def render_page(entries: list[str]) -> bytes:
     background: #cacccc; color: #101315; font-weight: 700; font-size: 15px; }}
   .copy:active {{ opacity: .7; }}
   .empty {{ text-align: center; color: #707880; }}
+  .banner {{ background: #2a1f10; border: 1px solid #6b5320; color: #e7c46b;
+    border-radius: 10px; padding: 10px 12px; font-size: 13px; margin: 0 0 16px;
+    text-align: center; }}
   footer {{ text-align: center; color: #707880; font-size: 11px; margin-top: 24px; }}
 </style>
 </head>
 <body>
-<header><h1>BEAM</h1><div class="sub">Tap Copy, or tap the text to select it</div></header>
+<header><h1>BEAM</h1><div class="sub">{subtitle}</div></header>
+{banner}
 <ul>{body}</ul>
-<footer>Local link · closes itself shortly</footer>
+<footer>{foot}</footer>
 <script>
 const ENTRIES = {payload};
 function selectText(el) {{
@@ -249,9 +263,11 @@ async function copyItem(i, btn) {{
     return doc.encode("utf-8")
 
 
-def make_handler(token: str, entries: list[str]):
-    page = render_page(entries)
+def make_handler(token: str, entries: list[str], one_time: bool = False):
+    page = render_page(entries, one_time)
     token_path = "/" + token
+    state = {"served": False}
+    lock = threading.Lock()
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "BeamLink"
@@ -259,8 +275,8 @@ def make_handler(token: str, entries: list[str]):
         def log_message(self, *args):  # never log requests (privacy)
             pass
 
-        def _deny(self):
-            self.send_response(404)
+        def _status(self, code):
+            self.send_response(code)
             self.send_header("Content-Length", "0")
             self.end_headers()
 
@@ -268,8 +284,16 @@ def make_handler(token: str, entries: list[str]):
             # Constant-time token check; the token is the only valid path.
             path = self.path.split("?", 1)[0].rstrip("/") or "/"
             if not hmac.compare_digest(path, token_path):
-                self._deny()
+                self._status(404)
                 return
+            # One-time mode: serve the page exactly once, then shut down so the
+            # link cannot be reopened. The phone keeps the loaded page.
+            if one_time:
+                with lock:
+                    if state["served"]:
+                        self._status(410)  # Gone
+                        return
+                    state["served"] = True
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(page)))
@@ -282,6 +306,9 @@ def make_handler(token: str, entries: list[str]):
             )
             self.end_headers()
             self.wfile.write(page)
+            # Close the one-time server right after the response is on the wire.
+            if one_time:
+                threading.Thread(target=self.server.shutdown, daemon=True).start()
 
     return Handler
 
@@ -291,6 +318,8 @@ def main() -> int:
     ap.add_argument("--count", type=int, default=5, help="recent text entries to serve")
     ap.add_argument("--current", action="store_true", help="serve only the current clipboard")
     ap.add_argument("--ttl", type=int, default=180, help="seconds before auto-shutdown")
+    ap.add_argument("--one-time", action="store_true",
+                    help="serve the page once, then shut down (secret mode)")
     ap.add_argument("--url-file", help="write the URL here once bound")
     ap.add_argument("--pid-file", help="write this process's PID here")
     ap.add_argument("--host", help="LAN IP to advertise in the URL (default: auto-detect)")
@@ -303,7 +332,7 @@ def main() -> int:
     ip = (args.host or lan_ip()).strip()
     # Listen on every interface so the phone can reach us regardless of which
     # address auto-detection chose; the URL still advertises the LAN IP above.
-    httpd = BeamServer(("0.0.0.0", 0), make_handler(token, entries))
+    httpd = BeamServer(("0.0.0.0", 0), make_handler(token, entries, args.one_time))
     port = httpd.server_address[1]
     url = f"http://{ip}:{port}/{token}"
 
