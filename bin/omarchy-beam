@@ -26,7 +26,7 @@
 
 set -uo pipefail
 
-readonly BEAM_VERSION="0.5.0"
+readonly BEAM_VERSION="0.5.1"
 readonly PLUGIN_ID="beam"
 
 # Maximum clipboard size we will turn into a QR code. Small pieces of info is
@@ -34,9 +34,9 @@ readonly PLUGIN_ID="beam"
 # scan. Override with BEAM_MAX_BYTES if you really need to.
 MAX_BYTES="${BEAM_MAX_BYTES:-1200}"
 
-# qrencode settings. Level H (~30% recovery) is high enough that the centered
-# Beam logo can cover the middle of the code and it still scans; it also shrugs
-# off screen glare and camera noise. Margin 4 is the spec-required quiet zone.
+# qrencode settings. Level H (~30% recovery) shrugs off screen glare and camera
+# noise for the most reliable scans. Margin 4 is the spec-required quiet zone
+# (the white border the green frame sits outside of).
 readonly QR_LEVEL="H"
 readonly QR_MARGIN="4"
 
