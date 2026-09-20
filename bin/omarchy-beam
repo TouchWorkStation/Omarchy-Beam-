@@ -26,7 +26,7 @@
 
 set -uo pipefail
 
-readonly BEAM_VERSION="0.3.1"
+readonly BEAM_VERSION="0.3.2"
 readonly PLUGIN_ID="beam"
 
 # Maximum clipboard size we will turn into a QR code. Small pieces of info is
@@ -491,21 +491,28 @@ cmd_link() {
   if [[ "$sel" == "current" ]]; then args+=(--current); else args+=(--count "$sel"); fi
 
   # Fully detach so the server outlives this launcher; it self-expires via TTL
-  # and is stopped when the overlay closes.
+  # and is stopped when the overlay closes. Its stderr is kept in a log so a
+  # startup failure can be reported instead of vanishing.
+  local log="$LINK_DIR/serve.log"
+  : >"$log" 2>/dev/null
   if have setsid; then
-    setsid "$SERVE_BIN" "${args[@]}" >/dev/null 2>&1 </dev/null &
+    setsid "$SERVE_BIN" "${args[@]}" >/dev/null 2>>"$log" </dev/null &
   else
-    nohup "$SERVE_BIN" "${args[@]}" >/dev/null 2>&1 </dev/null &
+    nohup "$SERVE_BIN" "${args[@]}" >/dev/null 2>>"$log" </dev/null &
   fi
   disown 2>/dev/null || true
 
-  # Wait (up to ~2s) for the server to bind and publish its URL.
+  # Wait (up to ~4s) for the server to bind and publish its URL.
   local i
-  for (( i = 0; i < 40; i++ )); do
+  for (( i = 0; i < 80; i++ )); do
     [[ -s "$LINK_URL_FILE" ]] && break
     sleep 0.05
   done
-  [[ -s "$LINK_URL_FILE" ]] || { link_stop; die "could not start the Beam Link server"; }
+  if [[ ! -s "$LINK_URL_FILE" ]]; then
+    local err; err="$(tail -n 3 "$log" 2>/dev/null | tr '\n' ' ')"
+    link_stop
+    die "could not start the Beam Link server${err:+ — $err}"
+  fi
 
   omarchy-shell shell summon "$PLUGIN_ID" '{}' \
     || { link_stop; die "could not reach the Omarchy shell (is it running?)."; }
