@@ -16,28 +16,12 @@ No pairing. No account. No cloud.
 
 ## Demo
 
-The overlay is a centered card on a dark scrim, styled with your current Omarchy
-theme:
+A centered card on a dark scrim, styled with your current Omarchy theme —
+running here with the repo URL on the clipboard:
 
-```
-        ┌─────────────────────────────┐
-        │                             │
-        │            BEAM             │
-        │                             │
-        │        ▛▀▘▝▀▛ ▟▛ ▛▀▘        │
-        │        ▌ [ QR CODE ] ▐      │
-        │        ▙▄▖▗▄▙ ▜▙ ▙▄▖        │
-        │                             │
-        │     github.com/omacom       │
-        │                             │
-        │        SCAN TO OPEN         │
-        │                             │
-        │         Esc to close        │
-        │                             │
-        └─────────────────────────────┘
-```
-
-> Screenshots from a live Omarchy session go in [`screenshots/`](screenshots/).
+<p align="center">
+  <img src="screenshots/overlay.jpg" alt="Omarchy Beam overlay: a QR code labelled BEAM with the clipboard URL and SCAN TO OPEN" width="320">
+</p>
 
 Prefer the terminal? Pipe text straight to a scannable code without touching your
 clipboard:
