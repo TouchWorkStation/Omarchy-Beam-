@@ -26,7 +26,7 @@
 
 set -uo pipefail
 
-readonly BEAM_VERSION="0.3.2"
+readonly BEAM_VERSION="0.3.3"
 readonly PLUGIN_ID="beam"
 
 # Maximum clipboard size we will turn into a QR code. Small pieces of info is
@@ -357,6 +357,7 @@ USAGE
                                N, a picker asks how many. Use 'current' for just
                                the current clipboard, 'all' for full history.
   echo "text" | omarchy-beam - Beam piped text as a QR in the terminal
+  omarchy-beam --link-doctor   Diagnose Beam Link (prints the server's output)
   omarchy-beam --help          Show this help
   omarchy-beam --version       Show the version
 
@@ -511,7 +512,7 @@ cmd_link() {
   if [[ ! -s "$LINK_URL_FILE" ]]; then
     local err; err="$(tail -n 3 "$log" 2>/dev/null | tr '\n' ' ')"
     link_stop
-    die "could not start the Beam Link server${err:+ — $err}"
+    die "could not start the Beam Link server${err:+ — $err} (run: omarchy-beam --link-doctor)"
   fi
 
   omarchy-shell shell summon "$PLUGIN_ID" '{}' \
@@ -520,6 +521,29 @@ cmd_link() {
 
 # Stop a running Beam Link server (called by the overlay when it closes).
 cmd_link_stop() { link_stop; }
+
+# Diagnose Beam Link problems: run the server in the foreground so its real
+# output (URL or error) is visible, and show this host's addresses.
+cmd_link_doctor() {
+  printf 'Omarchy Beam %s — Beam Link diagnostics\n\n' "$BEAM_VERSION"
+  printf 'serve helper : %s\n' "$SERVE_BIN"
+  [[ -e "$SERVE_BIN" ]] && printf '  exists     : yes\n' || printf '  exists     : NO\n'
+  [[ -x "$SERVE_BIN" ]] && printf '  executable : yes\n' || printf '  executable : NO (chmod +x it)\n'
+  if have python3; then printf 'python3      : %s\n' "$(python3 --version 2>&1)"; else printf 'python3      : NOT FOUND (sudo pacman -S python)\n'; fi
+  printf 'runtime dir  : %s\n\n' "$LINK_DIR"
+
+  printf 'Starting the server for 5s (its URL or error follows):\n'
+  printf -- '----------------------------------------------------------------\n'
+  timeout 5 "$SERVE_BIN" --count 3 --ttl 4 2>&1 | head -30
+  printf -- '----------------------------------------------------------------\n\n'
+
+  printf 'This host'\''s IPv4 addresses (the URL host should match one):\n'
+  if have ip; then
+    ip -4 addr show scope global 2>/dev/null | awk '/inet /{printf "  %s  (%s)\n", $2, $NF}'
+  else
+    printf '  (the `ip` command is not available)\n'
+  fi
+}
 
 # Default: toggle the overlay in the running Omarchy shell.
 cmd_toggle() {
@@ -561,6 +585,7 @@ main() {
     --emit)        cmd_emit ;;
     --link)        shift; cmd_link "${1:-}" ;;
     --link-stop)   cmd_link_stop ;;
+    --link-doctor) cmd_link_doctor ;;
     -)             cmd_pipe ;;
     "")            cmd_toggle ;;
     *)             die "unknown option: $1 (try --help)" ;;

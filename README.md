@@ -263,6 +263,9 @@ sudo pacman -S python                      # only if you use --link
   URL and a server, which Beam deliberately avoids.)
 - **Plugin not loading** — run `omarchy plugin validate .` in the plugin folder
   and `omarchy-shell shell rescanPlugins`.
+- **"could not start the Beam Link server"** — run `omarchy-beam --link-doctor`.
+  It starts the server in the foreground and prints its URL or the exact error
+  (e.g. missing `python3`), plus your host's IP addresses.
 - **Beam Link page won't open on my phone** — check, in order:
   1. **Same Wi-Fi?** Phone and desktop must be on the same network (and not a
      "guest" SSID — those often isolate devices from each other).
