@@ -280,13 +280,17 @@ sudo pacman -S python                      # only if you use --link
 
 ## Uninstall
 
+Run the teardown helper (unlinks the CLI, stops any Beam Link server, clears
+runtime state — it never edits your Hyprland config or your clipboard history):
+
 ```bash
+~/.config/omarchy/plugins/beam/uninstall.sh
 omarchy plugin remove beam
-rm -f ~/.local/bin/omarchy-beam
 ```
 
-Then delete the `o.bind("SUPER + SHIFT + Q", …)` line from
-`~/.config/hypr/bindings.lua` and `hyprctl reload`.
+Then delete the Beam `o.bind(…)` line(s) from `~/.config/hypr/bindings.lua`,
+`hyprctl reload`, and optionally `rm -rf ~/.config/omarchy-beam` to drop your
+preferences.
 
 ## Contributing
 
