@@ -128,17 +128,6 @@ theme while the QR keeps guaranteed contrast and a quiet zone for scanning.
   `Color.menu.background` / `Color.menu.border`). These re-derive from the active
   theme, so Beam restyles automatically when the theme changes.
 
-## Clipboard history (used by Beam Link, v0.3)
-
-Omarchy ships its own clipboard manager (`shell/plugins/clipboard/`), not
-`cliphist`. A `wl-paste --watch` runs `capture.sh`, which emits JSON entries;
-the history is persisted as a JSON array (newest first) at
-`~/.local/state/omarchy/clipboard-history.json`, with text entries shaped like
-`{"type":"text","text":"…"}` (images are `{"type":"image","path":…}`). Beam
-Link reads the recent text entries from this file rather than maintaining its
-own history. The count picker reuses Omarchy's launcher, `walker --dmenu`
-(falling back to `fuzzel`/`wofi`/… or a configured default).
-
 ## Keybindings
 
 Omarchy 4 configures Hyprland in Lua. User keybindings go in

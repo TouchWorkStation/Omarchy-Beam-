@@ -4,21 +4,21 @@
 
 Copy a link (or pass it on the command line), press a shortcut, and a branded QR
 appears in a clean, native Omarchy overlay. Scan it with any phone — the link
-opens, the text copies, the number dials. That's the core of Beam.
+opens, the text copies, the number dials. That's the whole plugin.
 
 ```
 Copy a link  →  Super + Shift + Q  →  Scan
         or:  omarchy-beam https://example.com
 ```
 
-No pairing. No account. No cloud.
+No pairing. No account. No cloud. No server. No network at all.
 
 ---
 
 ## Demo
 
 A centered card on a dark scrim, styled with your current Omarchy theme, with the
-Beam mark in the middle of the code:
+QR code wrapped in the green Beam frame:
 
 <p align="center">
   <img src="preview.png" alt="Omarchy Beam overlay: a QR code in the green Beam frame, labelled BEAM with the link and SCAN TO OPEN" width="420">
@@ -34,17 +34,6 @@ omarchy-beam https://github.com/TouchWorkStation/Omarchy-Beam-
 echo "https://example.com" | omarchy-beam -
 ```
 
-## Two modes, one plugin
-
-- **Links (core, default):** copy or pass a link → QR. 100% local, no server, no
-  dependencies beyond `qrencode` + `wl-clipboard`. This is all most people need.
-- **Beam Link (optional module):** an opt-in local web server that serves your
-  recent clipboard **history** as a page your phone can copy from, and a
-  one-time **secret** mode for keys/passwords. Needs `python3`, runs only when
-  you invoke `--link` / `--secret`, and can be turned off entirely (see
-  [links-only](#links-only-mode)). *Status: stable core; history UX still being
-  polished.*
-
 ## Why Beam?
 
 Moving a link, a command, a Wi-Fi password, or a phone number from your desktop
@@ -53,8 +42,8 @@ messaging yourself, email drafts, a syncing service — all mean accounts, apps,
 and your data leaving the machine.
 
 Beam does the obvious thing: it shows the data as a QR code on your own screen.
-Your phone's camera does the rest. In the core links mode nothing is transmitted,
-stored, or uploaded — the information travels as photons, monitor to camera.
+Your phone's camera does the rest. Nothing is transmitted, stored, or uploaded —
+the information travels as photons, monitor to camera.
 
 ## Installation
 
@@ -99,17 +88,6 @@ omarchy-beam https://you.dev    # beam a link directly (also prints a terminal Q
 echo "text" | omarchy-beam -    # render a QR in the terminal, clipboard untouched
 omarchy-beam --help
 omarchy-beam --version
-```
-
-### Links-only mode
-
-The clipboard-history web server is optional and off unless you run `--link` /
-`--secret`. To make the plugin **links-only** (and refuse those commands
-entirely — e.g. on a shared or locked-down machine):
-
-```bash
-mkdir -p ~/.config/omarchy-beam && touch ~/.config/omarchy-beam/links-only
-# or per-run: BEAM_DISABLE_LINK=1
 ```
 
 ## Keyboard shortcut
@@ -173,82 +151,15 @@ a Beam limitation. Your options:
   A QR can never write to a phone's clipboard on its own; this just gets the
   text somewhere copyable without a scanner app.
 
-## Beam Link (opt-in) — copy from a page instead of a QR
-
-Some things don't fit a QR, or you want to copy *history*, not just one item.
-**Beam Link** serves your recent clipboard entries as a small web page **on your
-own machine**, reachable over your Wi-Fi:
-
-```bash
-omarchy-beam --link        # asks how many entries to share, then shows a QR
-omarchy-beam --link 10     # share the last 10 (skip the prompt)
-omarchy-beam --link current # just the current clipboard
-omarchy-beam --link all    # full history
-```
-
-Scan the QR (any camera — it's a normal URL) → your phone opens a page listing
-those entries, each with a **Copy** button and tap-to-select. Bind it to a key
-too, e.g.:
-
-```lua
-o.bind("SUPER + SHIFT + V", "Beam Link", "omarchy-beam --link")
-```
-
-### Secret mode (one-time) — for keys and passwords
-
-```bash
-omarchy-beam --secret
-```
-
-Same local mechanism, hardened for sensitive data:
-
-- **Current clipboard only** — never reads history, so old secrets can't leak.
-- **One-time:** the server serves the page **once** and immediately closes, so
-  the link can't be reopened or replayed. The phone keeps the loaded page.
-- **Short TTL** (`BEAM_SECRET_TTL`, default 45s) if it's never scanned.
-- The overlay shows **"One-time secret — scan once"** and the phone page shows a
-  closed-link banner.
-
-The secret is **not** in the QR itself (the QR only holds the local URL), so a
-bystander photographing your screen doesn't get it. It does travel over your LAN
-in the clear (plain `http`) — fine on a home network, not on a hostile one. For
-true end-to-end-encrypted transfer across networks, see the roadmap.
-
-**How it stays local:** the page is served by a tiny web server running on your
-computer, bound to your LAN address behind an unguessable token in the URL. It
-**self-expires** after a few minutes (`BEAM_LINK_TTL`, default 180s) and stops
-when you close the overlay. Nothing is uploaded to any cloud.
-
-**Know the trade-offs** (that's why it's opt-in, never the default):
-- Phone and desktop must be on the **same Wi-Fi**.
-- It exposes clipboard **history** to anyone who has the link while it's live.
-- The one-tap Copy button is best-effort over plain `http` (browsers restrict
-  the clipboard API on non-`https` origins); tap-to-select always works.
-- Reads Omarchy's existing clipboard history
-  (`~/.local/state/omarchy/clipboard-history.json`); if that's empty it serves
-  just the current clipboard. Requires `python3`. The count picker uses
-  `walker` (or `fuzzel`/`wofi`/…); with none installed it uses a default of 5
-  (set it in `~/.config/omarchy-beam/link-count`).
-- The URL shows your auto-detected LAN IP. Detection prefers a real private LAN
-  address and skips Tailscale/CGNAT (`100.64/10`) and loopback, so a VPN
-  shouldn't hijack it. If it still picks the wrong one (Docker, several NICs),
-  set it yourself: `export BEAM_LINK_HOST=192.168.x.y` (find it with
-  `ip -4 addr`). The overlay prints the IP under the QR so you can check at a
-  glance.
-
 ## Privacy
 
 Privacy is the point.
 
-- **Completely local.** In the default QR mode your clipboard never leaves the
-  machine except visually, as the QR code you scan.
-- **No** telemetry, analytics, API, cloud service, remote server, account, or
-  database — ever.
-- **The one network exception is Beam Link**, and only when *you* invoke it: it
-  serves data over your own LAN (never a third-party/cloud), behind a tokened,
-  self-expiring local URL. The default QR mode makes no network requests at all.
-- **No temp files** for the clipboard: the QR is drawn as native rectangles in
-  the shell, not written to disk.
+- **Completely local.** Your clipboard never leaves the machine except visually,
+  as the QR code you scan.
+- **No** telemetry, analytics, API, cloud service, remote server, network
+  request, account, or database — ever. Beam opens no ports and runs no server.
+- **No history.** Beam only ever looks at what you hand it right now.
 - **Nothing logged.** Clipboard contents are never printed to logs.
 - Clipboard data is treated as untrusted input — it is only ever passed to
   `qrencode` on stdin, never interpolated into a shell command, and is never
@@ -259,24 +170,21 @@ Privacy is the point.
 A quick, honest map of exactly what Beam can and can't do (see also
 [`SECURITY.md`](SECURITY.md)):
 
+- **Fully offline.** Turning a link into a QR makes zero network requests, opens
+  no ports, and runs no server.
 - **No config is ever overwritten.** Beam never edits your Hyprland config — it
   only *prints* the keybinding line for you to add yourself.
 - **No privilege escalation.** Beam never escalates privilege (never runs as
-  root or through a privilege helper). It never
-  installs, upgrades, or removes packages; if a dependency is missing it only
-  *tells* you the package to install.
-- **Core links mode is offline.** Turning a link into a QR makes zero network
-  requests and writes no temp files.
+  root or through a privilege helper). It never installs, upgrades, or removes
+  packages; if a dependency is missing it only *tells* you the package to
+  install.
+- **No persisted data.** `omarchy-beam <link>` writes a single one-shot payload
+  file under `$XDG_RUNTIME_DIR/omarchy-beam` (mode 600) that the overlay consumes
+  and deletes on read; the toggle/clipboard path writes nothing at all.
 - **`install.sh`** only symlinks `omarchy-beam` into `~/.local/bin` and prints
   the shortcut; **`uninstall.sh`** only removes that symlink (when it points at
   this plugin) and Beam's runtime state. Neither touches your shell or Hyprland
   config. Both are optional — the plugin works from its install directory.
-- **Beam Link** (`--link` / `--secret`, opt-in, *work in progress*) is the only
-  networked feature. When *you* invoke it, a local `python3` server binds your
-  **LAN** address behind an unguessable token, self-expires on a TTL (and after
-  a single fetch in `--secret`), never uploads to any cloud, and never logs
-  clipboard contents. It can be disabled entirely — see
-  [Links-only mode](#links-only-mode).
 
 ## Requirements
 
@@ -285,13 +193,11 @@ Everything Beam needs already ships with Omarchy — there's nothing to install:
 - `omarchy-shell` (the Omarchy Quickshell desktop)
 - `wl-clipboard` (`wl-paste`)
 - `qrencode`
-- `python3` — used **only** by the optional Beam Link module (`--link`); the QR
-  links core never needs it.
 
 Beam itself never installs anything. In the unlikely event a dependency is
-missing, Beam prints the exact package name (`qrencode`, `wl-clipboard`, or
-`python3`) for you to install with your usual package manager — it never runs a
-package manager or elevates privilege for you.
+missing, Beam prints the exact package name (`qrencode` or `wl-clipboard`) for
+you to install with your usual package manager — it never runs a package manager
+or elevates privilege for you.
 
 ## Troubleshooting
 
@@ -318,33 +224,11 @@ package manager or elevates privilege for you.
   URL and a server, which Beam deliberately avoids.)
 - **Plugin not loading** — run `omarchy plugin validate .` in the plugin folder
   and `omarchy-shell shell rescanPlugins`.
-- **"could not start the Beam Link server"** — run `omarchy-beam --link-doctor`.
-  It starts the server in the foreground and prints its URL or the exact error
-  (e.g. missing `python3`), plus your host's IP addresses. (Fixed in v0.3.5: on
-  hosts with a VPN such as Tailscale, the server used to stall on a reverse-DNS
-  lookup at bind time — update if you're on an older version.)
-- **See exactly what the phone does** — run the server in the foreground with
-  request logging and scan it: `~/.config/omarchy/plugins/beam/bin/omarchy-beam-serve --count 3 --ttl 300 --verbose`.
-  It prints the URL and logs each hit (`[beam] GET from <ip> -> 200`). If your
-  phone's request never appears, it never reached the desktop (scanner didn't
-  open the link, or a network/firewall issue); if it shows `-> 200`, the page
-  was served and the problem is on the phone's rendering side.
-- **Beam Link page won't open on my phone** — check, in order:
-  1. **Same Wi-Fi?** Phone and desktop must be on the same network (and not a
-     "guest" SSID — those often isolate devices from each other).
-  2. **Right IP?** Look at the address under the QR. Compare with `ip -4 addr`
-     on the desktop. If it's a VPN/Docker/`127.` address, set the real one:
-     `export BEAM_LINK_HOST=192.168.x.y` (and re-run, or put it in your shell
-     profile / the keybind: `env BEAM_LINK_HOST=192.168.x.y omarchy-beam --link`).
-  3. **Server up?** On the desktop, `curl -s -o /dev/null -w '%{http_code}\n' "<the URL under the QR>"` should print `200`.
-  4. **Firewall?** If curl works locally but the phone times out, a firewall is
-     blocking the port — allow your LAN subnet through it (e.g. a `ufw` rule for
-     `192.168.0.0/16`). Omarchy has no firewall by default, so this is rare.
 
 ## Uninstall
 
-Run the teardown helper (unlinks the CLI, stops any Beam Link server, clears
-runtime state — it never edits your Hyprland config or your clipboard history):
+Run the teardown helper (unlinks the CLI and clears runtime state — it never
+edits your Hyprland config or your clipboard history):
 
 ```bash
 ~/.config/omarchy/plugins/beam/uninstall.sh
@@ -364,9 +248,9 @@ omarchy plugin validate .   # manifest passes the shell's own schema
 test/beam_test.sh           # classification, previews, limits, QR round-trip
 ```
 
-Please keep V0.1 focused: **turn the current clipboard into a beautiful,
-instantly scannable QR code.** See `docs/OMARCHY_RESEARCH.md` for how Beam maps
-onto the current Omarchy plugin architecture.
+Please keep Beam focused: **turn a link into a beautiful, instantly scannable QR
+code.** See `docs/OMARCHY_RESEARCH.md` for how Beam maps onto the current
+Omarchy plugin architecture.
 
 ## License
 

@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "id": "beam",
   "name": "Omarchy Beam",
-  "version": "0.5.5",
+  "version": "0.6.0",
   "author": "TouchWorkStation",
-  "description": "Turn any link into a scannable QR code — copy or pass a link, press a shortcut, scan. Optional local clipboard-history server.",
+  "description": "Turn any link into a scannable QR code — copy or pass a link, press a shortcut, scan. Fully local, no network.",
   "kinds": [
     "overlay"
   ],

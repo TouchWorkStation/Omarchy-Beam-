@@ -76,9 +76,6 @@ Item {
       root.expectedStop = true
       emitProc.running = false
     }
-    // If this was a Beam Link, stop the local web server now that the card is
-    // gone (the server also self-expires via its TTL as a safety net).
-    if (root.kind === "link") linkStopProc.running = true
     // Drop everything derived from the clipboard as soon as the card closes.
     root.status = ""
     root.kind = ""
@@ -136,12 +133,6 @@ Item {
       root.status = "toolarge"
       root.label = "Could not build a QR code"
     }
-  }
-
-  // Fire-and-forget stop for the Beam Link server when the overlay closes.
-  Process {
-    id: linkStopProc
-    command: [root.beamBin, "--link-stop"]
   }
 
   Process {

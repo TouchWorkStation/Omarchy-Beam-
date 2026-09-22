@@ -12,8 +12,9 @@ platform) until a private channel is set up.
 Omarchy Beam is designed to do one thing safely: turn a link (or clipboard text)
 into a scannable QR code.
 
-- **Local by default.** The core "links → QR" mode makes **no network requests**,
-  writes **no temp files**, keeps **no history**, and logs nothing.
+- **Fully local, no network at all.** Beam makes **no network requests**, opens
+  **no ports**, runs **no server**, keeps **no history**, and logs nothing. Your
+  data never leaves this machine except visually, through the QR code you scan.
 - **No privilege escalation.** Beam never runs `sudo`/`pkexec` and never
   installs, upgrades, or removes packages. If a dependency is missing it prints
   the package name for you to install — it does not run a package manager.
@@ -23,25 +24,10 @@ into a scannable QR code.
 - **Untrusted input.** Clipboard/argument data is only ever passed to `qrencode`
   on stdin — never interpolated into a shell command, executed, or evaluated. A
   payload size cap (`BEAM_MAX_BYTES`) bounds it.
-
-## Beam Link (optional, work in progress)
-
-`--link` / `--secret` start a small local `python3` web server so a phone can
-copy clipboard **history**. It is **opt-in**, off unless you invoke it, and can
-be disabled entirely (`BEAM_DISABLE_LINK=1` or
-`~/.config/omarchy-beam/links-only`). When running it:
-
-- binds this machine's **LAN** address only (never a third-party/cloud service);
-- requires an **unguessable token** in the URL (constant-time compared);
-- **self-expires** on a TTL, and in `--secret` mode serves the page **once** then
-  shuts down;
-- escapes all served content and sets a restrictive `Content-Security-Policy`;
-- never logs requests or clipboard contents (except opt-in `--verbose`, which
-  logs only method/client/status — never the token or content).
-
-Because it serves over plain HTTP on your LAN, treat it as suitable for your own
-trusted network, not a hostile one. End-to-end-encrypted, cross-network transfer
-is on the roadmap.
+- **No persisted data.** `omarchy-beam <link>` writes a single one-shot payload
+  file under `$XDG_RUNTIME_DIR/omarchy-beam` (mode 600, in a 700 directory) that
+  the overlay consumes and deletes on read. Nothing else is written to disk, and
+  the toggle/clipboard path writes nothing at all.
 
 ## Supported versions
 

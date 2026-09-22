@@ -3,9 +3,9 @@
 # Clean, safe teardown for Omarchy Beam.
 #
 # Removes only what Beam created: the `omarchy-beam` PATH symlink (only if it
-# points at this plugin), any running Beam Link server, and Beam's runtime
-# state. It never edits your Hyprland config and never deletes your clipboard
-# history. The plugin folder itself is removed by `omarchy plugin remove beam`.
+# points at this plugin) and Beam's runtime state. It never edits your Hyprland
+# config and never deletes your clipboard history. The plugin folder itself is
+# removed by `omarchy plugin remove beam`.
 
 set -euo pipefail
 
@@ -15,9 +15,6 @@ DEST="$BIN_DIR/omarchy-beam"
 
 green() { printf '\033[32m%s\033[0m\n' "$*"; }
 yellow() { printf '\033[33m%s\033[0m\n' "$*"; }
-
-# Stop a running Beam Link server, if any.
-"$SCRIPT_DIR/bin/omarchy-beam" --link-stop >/dev/null 2>&1 || true
 
 # Remove the PATH symlink only if it points back into this plugin (don't touch
 # an unrelated binary a user may have named the same).
@@ -33,7 +30,7 @@ elif [[ -e "$DEST" ]]; then
   yellow "Left $DEST alone (not a symlink created by Beam)"
 fi
 
-# Remove Beam's runtime state (URL/PID/log for Beam Link). Never persisted data.
+# Remove Beam's runtime state (the one-shot payload temp dir). Never persisted data.
 rm -rf "${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/omarchy-beam" 2>/dev/null || true
 
 green "Omarchy Beam CLI unlinked."
