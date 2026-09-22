@@ -137,66 +137,6 @@ else
   echo "  -- zbarimg not installed; skipping scannability round-trip"
 fi
 
-echo "Beam Link — count resolution"
-[[ "$(XDG_CONFIG_HOME=/nonexistent resolve_link_count_default)" == "5" ]] \
-  && ok "link count defaults to 5" || bad "link default count"
-_cfg="$(mktemp -d)"; mkdir -p "$_cfg/omarchy-beam"; echo 12 >"$_cfg/omarchy-beam/link-count"
-[[ "$(XDG_CONFIG_HOME=$_cfg resolve_link_count_default)" == "12" ]] \
-  && ok "link count reads config file" || bad "link config count"
-rm -rf "$_cfg"
-
-echo "Beam Link — server + link-mode emit"
-if command -v python3 >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
-  _st="$(mktemp -d)"; _rt="$(mktemp -d)"
-  mkdir -p "$_st/omarchy"
-  cat >"$_st/omarchy/clipboard-history.json" <<'JSON'
-[{"type":"text","text":"first entry"},{"type":"text","text":"second <b>&</b>"},{"type":"image","path":"/x.png"},{"type":"text","text":"third entry"}]
-JSON
-  ldir="$_rt/omarchy-beam"; mkdir -p "$ldir"
-  XDG_STATE_HOME="$_st" "$ROOT/bin/omarchy-beam-serve" --count 2 --ttl 15 \
-    --url-file "$ldir/link.url" --pid-file "$ldir/link.pid" >/dev/null 2>&1 &
-  for _ in $(seq 1 40); do [[ -s "$ldir/link.url" ]] && break; sleep 0.05; done
-  url="$(cat "$ldir/link.url" 2>/dev/null)"
-  if [[ -n "$url" ]]; then
-    page="$(curl -s "$url")"
-    [[ "$(grep -c 'class="item"' <<<"$page")" == "2" ]] && ok "server serves requested count (2, images skipped)" || bad "server count"
-    grep -q '&lt;b&gt;' <<<"$page" && ! grep -q '<b>&</b>' <<<"$page" && ok "server HTML-escapes entries" || bad "server escaping"
-    [[ "$(curl -s -o /dev/null -w '%{http_code}' "${url%/*}/wrongtoken")" == "404" ]] && ok "server rejects wrong token (404)" || bad "server token check"
-    # Link-mode emit shows a QR of the URL.
-    out="$(XDG_RUNTIME_DIR="$_rt" "$ROOT/bin/omarchy-beam" --emit | head -1)"
-    [[ "$out" == meta$'\t'ok$'\t'link$'\t'* ]] && ok "emit shows link QR when server is up" || bad "link emit (got [$out])"
-    # link-stop tears everything down.
-    XDG_RUNTIME_DIR="$_rt" "$ROOT/bin/omarchy-beam" --link-stop
-    sleep 0.3
-    [[ ! -e "$ldir/link.url" ]] && ok "link-stop removes state + kills server" || bad "link-stop cleanup"
-  else
-    bad "server did not publish a URL"
-  fi
-  rm -rf "$_st" "$_rt"
-
-  echo "Beam Link — secret / one-time mode"
-  _rt2="$(mktemp -d)"; ldir2="$_rt2/omarchy-beam"; mkdir -p "$ldir2"
-  "$ROOT/bin/omarchy-beam-serve" --current --one-time --ttl 10 \
-    --url-file "$ldir2/link.url" --pid-file "$ldir2/link.pid" >/dev/null 2>&1 &
-  for _ in $(seq 1 40); do [[ -s "$ldir2/link.url" ]] && break; sleep 0.05; done
-  url2="$(cat "$ldir2/link.url" 2>/dev/null)"
-  printf 'secret' >"$ldir2/link.mode"
-  if [[ -n "$url2" ]]; then
-    out2="$(XDG_RUNTIME_DIR="$_rt2" "$ROOT/bin/omarchy-beam" --emit | head -1)"
-    [[ "$out2" == *$'\t'One-time\ secret* ]] && ok "emit shows the one-time secret label" || bad "secret label (got [$out2])"
-    body2="$(curl -s "$url2")"; code1="$(curl -s -o /dev/null -w '%{http_code}' "$url2" 2>/dev/null || echo 000)"
-    grep -q 'One-time link' <<<"$body2" && ok "one-time page shows the closed-link banner" || bad "one-time banner"
-    sleep 0.3
-    code2="$(curl -s -o /dev/null -w '%{http_code}' "$url2" 2>/dev/null || echo 000)"
-    [[ "$code2" != "200" ]] && ok "one-time server closes after first fetch (2nd=$code2)" || bad "one-time did not close"
-  else
-    bad "one-time server did not publish a URL"
-  fi
-  rm -rf "$_rt2"
-else
-  echo "  -- python3/curl not available; skipping Beam Link server tests"
-fi
-
 echo "Beam a link by argument (one-shot payload)"
 _rt3="$(mktemp -d)"; mkdir -p "$_rt3/omarchy-beam"
 printf 'https://example.com/x' >"$_rt3/omarchy-beam/payload"
